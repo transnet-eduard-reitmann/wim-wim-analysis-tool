@@ -189,6 +189,12 @@
       li.textContent = `${stats.type1Count} Type 1 exceedance(s) detected — route train to maintenance depot at next opportunity.`;
       reasonsList.appendChild(li);
     }
+
+    if (analysisResult.verdict.verdict === 'INCONCLUSIVE') {
+      const li = document.createElement('li');
+      li.innerHTML = `<strong>ACTION REQUIRED:</strong> Manual review by a qualified technician is required.`;
+      reasonsList.appendChild(li);
+    }
   }
 
   // ── PDF download ───────────────────────────────────────────────────────────

@@ -163,9 +163,9 @@ const Visualiser = (() => {
     // Legend
     const legend = el('div', 'display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;');
     [
-      { bg: CH_BG.healthy, label: `Healthy (< ${ALARM_LIMITS.channelOffset.warningThreshold} t)` },
-      { bg: CH_BG.warning, label: `Warning (${ALARM_LIMITS.channelOffset.warningThreshold}–${ALARM_LIMITS.channelOffset.faultThreshold} t)` },
-      { bg: CH_BG.fault,   label: `Fault (≥ ${ALARM_LIMITS.channelOffset.faultThreshold} t)` },
+      { bg: CH_BG.healthy, label: `Healthy (< ${ALARM_LIMITS.channelOffset.warningThreshold} V)` },
+      { bg: CH_BG.warning, label: `Warning (${ALARM_LIMITS.channelOffset.warningThreshold}–${ALARM_LIMITS.channelOffset.faultThreshold} V)` },
+      { bg: CH_BG.fault,   label: `Fault (≥ ${ALARM_LIMITS.channelOffset.faultThreshold} V)` },
     ].forEach(item => {
       const e = el('div', 'display:flex;align-items:center;gap:6px;font-size:11px;color:#6b7280;');
       e.innerHTML = `<span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:${item.bg}"></span>${item.label}`;
@@ -229,7 +229,7 @@ const Visualiser = (() => {
 
     const desc = channelDescription(ch);
     const tipText = data
-      ? `Channel ${ch}${desc ? '\n' + desc : ''}\nOffset: ${data.value.toFixed(3)} t\nStatus: ${status.toUpperCase()}`
+      ? `Channel ${ch}${desc ? '\n' + desc : ''}\nOffset: ${data.value.toFixed(3)} V\nStatus: ${status.toUpperCase()}`
       : `Channel ${ch}${desc ? '\n' + desc : ''}\nNo data`;
     attachTooltip(cell, tipText);
     return cell;
@@ -358,15 +358,15 @@ const Visualiser = (() => {
     const grpRow = el('div', `display:flex;align-items:flex-end;`);
     grpRow.appendChild(el('div', `width:${INFO_W}px;flex-shrink:0;`));
     grpRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
-    grpRow.appendChild(mkGrpLabel(measGroupW, '▼ Measurements',          '#0e7490', '#cffafe', '#a5f3fc'));
+    grpRow.appendChild(mkGrpLabel(measGroupW, 'Measurements',         '#0e7490', '#cffafe', '#a5f3fc'));
     grpRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
-    grpRow.appendChild(mkGrpLabel(dynW,       '▲ Dynamic Load',           '#1e40af', '#dbeafe', '#bfdbfe'));
+    grpRow.appendChild(mkGrpLabel(dynW,       'Dynamic Load',          '#1e40af', '#dbeafe', '#bfdbfe'));
     grpRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
-    grpRow.appendChild(mkGrpLabel(skewLoadW,  '⇔ Skew Loading',          '#1e40af', '#dbeafe', '#bfdbfe'));
+    grpRow.appendChild(mkGrpLabel(skewLoadW,  'Skew Loading',          '#1e40af', '#dbeafe', '#bfdbfe'));
     grpRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
-    grpRow.appendChild(mkGrpLabel(skewnessW,  '↻ Skewness',              '#0e7490', '#cffafe', '#a5f3fc'));
+    grpRow.appendChild(mkGrpLabel(skewnessW,  'Skewness',              '#0e7490', '#cffafe', '#a5f3fc'));
     grpRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
-    grpRow.appendChild(mkGrpLabel(latW,       '← Lateral Force Alarms',  '#5b21b6', '#ede9fe', '#c4b5fd'));
+    grpRow.appendChild(mkGrpLabel(latW,       'Lateral Force Alarms',  '#5b21b6', '#ede9fe', '#c4b5fd'));
     stickyHdr.appendChild(grpRow);
 
     // Row 2 — column labels
@@ -411,7 +411,7 @@ const Visualiser = (() => {
     colRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
 
     // Skewness [B] — teal, bogie-height merged blocks
-    colRow.appendChild(mkSingleColHdr(`Skewness${sub('(bogie)')}`, '#0e7490', '#ecfeff', skewnessW));
+    colRow.appendChild(mkSingleColHdr(`Bogie`, '#0e7490', '#ecfeff', skewnessW));
     colRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
 
     colRow.appendChild(mkColHdrs(LAT_COLS, '#6d28d9', '#f5f3ff', '#c4b5fd'));
@@ -509,11 +509,11 @@ const Visualiser = (() => {
       vBlock.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
 
       // ── Skew Loading — S-S and E-E vehicle-height merged cells ──
-      vBlock.appendChild(buildVehicleSkewCell(v.sideToSideSkew, 'S-S', v, vTotalH, BW));
+      vBlock.appendChild(buildVehicleSkewCell(v.sideToSideSkew, '⇔', v, vTotalH, BW));
       const skewSep = el('div', `width:${GG}px;flex-shrink:0;display:flex;align-items:stretch;justify-content:center;`);
       skewSep.appendChild(el('div', `width:1px;background:#bfdbfe;margin:4px 0;`));
       vBlock.appendChild(skewSep);
-      vBlock.appendChild(buildVehicleSkewCell(v.endToEndSkew, 'E-E', v, vTotalH, BW));
+      vBlock.appendChild(buildVehicleSkewCell(v.endToEndSkew, '↕', v, vTotalH, BW));
 
       vBlock.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
 
@@ -640,7 +640,7 @@ const Visualiser = (() => {
       lbl.textContent = label;
       cell.appendChild(lbl);
     }
-    const tipLabel = label === 'S-S' ? 'Side-to-Side Skew' : 'End-to-End Skew';
+    const tipLabel = label === '⇔' ? 'Side-to-Side Skew' : 'End-to-End Skew';
     if (pct != null) {
       const valDiv = el('div', ``);
       valDiv.textContent = pct.toFixed(1) + '%';
