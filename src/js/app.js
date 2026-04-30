@@ -9,8 +9,8 @@
 
   // ── State ──────────────────────────────────────────────────────────────────
 
-  let trainData      = null;
-  let analysisResult = null;
+  let trainData       = null;
+  let analysisResult  = null;
   let currentRailType = RAIL_TYPE.S_LINE;
 
   // ── Init ───────────────────────────────────────────────────────────────────
@@ -27,14 +27,8 @@
   function setupDropZone() {
     const zone = document.getElementById('drop-zone');
     if (!zone) return;
-
-    zone.addEventListener('dragover', e => {
-      e.preventDefault();
-      zone.classList.add('drag-over');
-    });
-
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
     zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-
     zone.addEventListener('drop', e => {
       e.preventDefault();
       zone.classList.remove('drag-over');
@@ -53,13 +47,11 @@
 
   function handleFile(file) {
     setStatus('loading', `Reading ${file.name}…`);
-
     const reader = new FileReader();
     reader.onload = e => {
       try {
         const text = e.target.result;
-        const isAlarm = file.name.toLowerCase().includes('-alarm');
-        if (isAlarm) {
+        if (file.name.toLowerCase().includes('-alarm')) {
           setStatus('error', 'This is an alarm file. Please upload a condition file (-cond.csv) for analysis.');
           return;
         }
@@ -102,11 +94,10 @@
     showSection('report-section');
     renderMeta();
     renderVerdict();
-    renderChannelHealthTable();
+    renderChannelSummaryCards();
+    Visualiser.renderChannelLayout(analysisResult.channelHealth, 'channel-layout');
+    Visualiser.renderMultiParamHeatmap(trainData, analysisResult, currentRailType, 'heatmap-container');
     renderVehicleSummaryTable();
-    Visualiser.renderTrainHeatmap(analysisResult, trainData, 'heatmap-container');
-    Visualiser.renderChannelOffsetChart(analysisResult.channelHealth, 'channel-chart');
-    Visualiser.renderExceedanceDonut(analysisResult.stats, 'donut-chart');
     renderExceedanceTable();
     renderConclusions();
   }
@@ -128,47 +119,30 @@
     const { verdict, confidence, reasons } = analysisResult.verdict;
     const banner = document.getElementById('verdict-banner');
     const verdictText = document.getElementById('verdict-text');
-    const confidenceText = document.getElementById('verdict-confidence');
+    const confidenceEl = document.getElementById('verdict-confidence');
     const reasonsList = document.getElementById('verdict-reasons');
 
     if (!banner || !verdictText) return;
 
     verdictText.textContent = verdict;
-    if (confidenceText) confidenceText.textContent = confidence !== 'N/A' ? `Confidence: ${confidence}` : '';
-
+    if (confidenceEl) confidenceEl.textContent = confidence !== 'N/A' ? `Confidence: ${confidence}` : '';
     banner.className = 'rounded-xl p-5 border-2 ' + verdictBannerClass(verdict);
-
-    if (reasonsList) {
-      reasonsList.innerHTML = reasons.map(r => `<li>${r}</li>`).join('');
-    }
+    if (reasonsList) reasonsList.innerHTML = reasons.map(r => `<li>${r}</li>`).join('');
   }
 
   function verdictBannerClass(verdict) {
-    if (verdict.includes('TRUE'))        return 'bg-red-950 border-red-600 text-red-200';
-    if (verdict.includes('FALSE'))       return 'bg-green-950 border-green-600 text-green-200';
-    if (verdict === 'NO ALARM')          return 'bg-slate-800 border-slate-600 text-slate-200';
-    return 'bg-yellow-950 border-yellow-600 text-yellow-200';
+    if (verdict.includes('TRUE'))  return 'bg-red-50 border-red-400 text-red-800';
+    if (verdict.includes('FALSE')) return 'bg-green-50 border-green-400 text-green-800';
+    if (verdict === 'NO ALARM')    return 'bg-gray-50 border-gray-300 text-gray-700';
+    return 'bg-amber-50 border-amber-400 text-amber-800';
   }
 
-  function renderChannelHealthTable() {
-    const { channels, faultCount, warningCount, total } = analysisResult.channelHealth;
+  function renderChannelSummaryCards() {
+    const { faultCount, warningCount, total } = analysisResult.channelHealth;
     setText('ch-total',   total);
     setText('ch-healthy', total - faultCount - warningCount);
     setText('ch-warning', warningCount);
     setText('ch-fault',   faultCount);
-
-    const tbody = document.getElementById('channel-table-body');
-    if (!tbody) return;
-
-    tbody.innerHTML = channels.map(c => {
-      const statusClass = c.status === 'fault' ? 'text-red-400' : c.status === 'warning' ? 'text-amber-400' : 'text-green-400';
-      const statusLabel = c.status === 'fault' ? 'FAULT' : c.status === 'warning' ? 'WARNING' : 'OK';
-      return `<tr class="border-b border-slate-700">
-        <td class="py-1 px-2 text-slate-300">Ch ${c.channel}</td>
-        <td class="py-1 px-2 text-slate-200 font-mono">${c.value.toFixed(3)} t</td>
-        <td class="py-1 px-2 font-semibold ${statusClass}">${statusLabel}</td>
-      </tr>`;
-    }).join('');
   }
 
   function renderVehicleSummaryTable() {
@@ -178,13 +152,14 @@
     tbody.innerHTML = analysisResult.vehicleResults.map(v => {
       const sevClass = severityClass(v.worstSeverity);
       const vData = trainData.vehicles.find(vd => vd.vPos === v.vPos);
-      const skewPct = vData && vData.sideToSideSkew != null ? (vData.sideToSideSkew * 100).toFixed(1) + '%' : '—';
-      return `<tr class="border-b border-slate-700">
-        <td class="py-1 px-2 text-slate-300">${v.vPos}</td>
-        <td class="py-1 px-2 text-slate-400 text-xs font-mono">${v.vehicleId || '—'}</td>
-        <td class="py-1 px-2 text-slate-200">${v.mass_t != null ? v.mass_t.toFixed(1) + ' t' : '—'}</td>
-        <td class="py-1 px-2 text-slate-300">${skewPct}</td>
-        <td class="py-1 px-2 text-slate-300">${v.exceedances.length}</td>
+      const skewPct = vData && vData.sideToSideSkew != null
+        ? (vData.sideToSideSkew * 100).toFixed(1) + '%' : '—';
+      return `<tr class="border-b border-gray-100">
+        <td class="py-1 px-2 text-gray-700">${v.vPos}</td>
+        <td class="py-1 px-2 text-gray-500 text-xs font-mono">${v.vehicleId || '—'}</td>
+        <td class="py-1 px-2 text-gray-800">${v.mass_t != null ? v.mass_t.toFixed(1) + ' t' : '—'}</td>
+        <td class="py-1 px-2 text-gray-700">${skewPct}</td>
+        <td class="py-1 px-2 text-gray-700">${v.exceedances.length}</td>
         <td class="py-1 px-2 font-semibold ${sevClass}">${severityLabel(v.worstSeverity)}</td>
       </tr>`;
     }).join('');
@@ -199,26 +174,26 @@
       .sort((a, b) => severityRank(b.severity) - severityRank(a.severity) || a.vPos - b.vPos);
 
     if (allExceedances.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="py-4 text-center text-slate-400">No exceedances detected.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="py-4 text-center text-gray-400">No exceedances detected.</td></tr>';
       return;
     }
 
     tbody.innerHTML = allExceedances.map(e => {
       const sevClass = severityClass(e.severity);
-      return `<tr class="border-b border-slate-700">
-        <td class="py-1 px-2 text-slate-300">${e.vPos}</td>
-        <td class="py-1 px-2 text-slate-300">${e.axle != null ? e.axle : '—'}</td>
-        <td class="py-1 px-2 text-slate-300">${e.side}</td>
-        <td class="py-1 px-2 text-slate-200">${e.parameter}</td>
-        <td class="py-1 px-2 text-slate-200 font-mono">${e.value.toFixed(2)} ${e.units}</td>
-        <td class="py-1 px-2 text-slate-400 font-mono">${e.limit.toFixed(1)} ${e.units}</td>
+      return `<tr class="border-b border-gray-100">
+        <td class="py-1 px-2 text-gray-700">${e.vPos}</td>
+        <td class="py-1 px-2 text-gray-700">${e.axle != null ? e.axle : '—'}</td>
+        <td class="py-1 px-2 text-gray-700">${e.side}</td>
+        <td class="py-1 px-2 text-gray-800">${e.parameter}</td>
+        <td class="py-1 px-2 text-gray-800 font-mono">${e.value.toFixed(2)} ${e.units}</td>
+        <td class="py-1 px-2 text-gray-400 font-mono">${e.limit.toFixed(1)} ${e.units}</td>
         <td class="py-1 px-2 font-semibold ${sevClass}">${severityLabel(e.severity)}</td>
       </tr>`;
     }).join('');
   }
 
   function renderConclusions() {
-    const { verdict, confidence, reasons } = analysisResult.verdict;
+    const { reasons } = analysisResult.verdict;
     const { stats } = analysisResult;
     const el = document.getElementById('conclusions-list');
     if (!el) return;
@@ -259,10 +234,10 @@
     if (!el) return;
     el.textContent = message;
     el.className = {
-      loading: 'text-slate-400 text-sm',
-      error:   'text-red-400 text-sm',
+      loading: 'text-gray-500 text-sm',
+      error:   'text-red-600 text-sm',
       ready:   'hidden',
-    }[type] || 'text-slate-400 text-sm';
+    }[type] || 'text-gray-500 text-sm';
   }
 
   function showSection(id) {
@@ -277,20 +252,15 @@
 
   function severityClass(sev) {
     return {
-      [SEVERITY.NOMINAL]: 'text-green-400',
-      [SEVERITY.TYPE1]:   'text-amber-400',
-      [SEVERITY.TYPE2]:   'text-orange-400',
-      [SEVERITY.TYPE3]:   'text-red-400',
-    }[sev] || 'text-slate-400';
+      [SEVERITY.NOMINAL]: 'text-green-600',
+      [SEVERITY.TYPE1]:   'text-amber-600',
+      [SEVERITY.TYPE2]:   'text-orange-600',
+      [SEVERITY.TYPE3]:   'text-red-600',
+    }[sev] || 'text-gray-400';
   }
 
   function severityLabel(sev) {
-    return {
-      [SEVERITY.NOMINAL]: 'Nominal',
-      [SEVERITY.TYPE1]:   'Type 1',
-      [SEVERITY.TYPE2]:   'Type 2',
-      [SEVERITY.TYPE3]:   'Type 3',
-    }[sev] || '—';
+    return { [SEVERITY.NOMINAL]: 'Nominal', [SEVERITY.TYPE1]: 'Type 1', [SEVERITY.TYPE2]: 'Type 2', [SEVERITY.TYPE3]: 'Type 3' }[sev] || '—';
   }
 
   function severityRank(s) {

@@ -3,39 +3,48 @@
 /* Drag-and-drop active state */
 #drop-zone.drag-over {
   border-color: #3b82f6;
-  background-color: rgba(59, 130, 246, 0.08);
+  background-color: rgba(59, 130, 246, 0.06);
 }
 
-/* Ensure heatmap cells don't shrink */
-#heatmap-container {
-  min-height: 60px;
-}
-
-/* Smooth scrolling for long trains */
-#heatmap-container .overflow-x-auto {
+/* Heatmap scroll container — scrolls horizontally on screen */
+.heatmap-scroll {
+  overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
-  scrollbar-color: #334155 #0f172a;
+  scrollbar-color: #d1d5db #f9fafb;
 }
 
-#heatmap-container .overflow-x-auto::-webkit-scrollbar {
+.heatmap-scroll::-webkit-scrollbar {
   height: 6px;
 }
 
-#heatmap-container .overflow-x-auto::-webkit-scrollbar-track {
-  background: #0f172a;
+.heatmap-scroll::-webkit-scrollbar-track {
+  background: #f9fafb;
 }
 
-#heatmap-container .overflow-x-auto::-webkit-scrollbar-thumb {
-  background-color: #334155;
+.heatmap-scroll::-webkit-scrollbar-thumb {
+  background-color: #d1d5db;
   border-radius: 3px;
 }
 
-/* PDF print overrides — keep dark background in PDF */
+/* Print / PDF overrides */
 @media print {
-  body { background: #0f172a !important; color: #f1f5f9 !important; }
-  .bg-slate-900 { background: #0f172a !important; }
-  .bg-slate-800 { background: #1e293b !important; }
+  /* Show full heatmap width — do not clip */
+  .heatmap-scroll {
+    overflow: visible !important;
+    max-width: none !important;
+  }
+
+  /* Hide interactive-only elements */
+  .print\:hidden {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #111827 !important;
+    font-size: 11px;
+  }
 }
 
 /* Ensure code elements inherit font */
@@ -44,7 +53,8 @@ code {
   font-size: 0.85em;
 }
 
-/* Chart canvas sizing */
-canvas {
-  max-width: 100%;
+/* Prevent heatmap cells from blurring on high-DPI displays */
+#heatmap-container div,
+#channel-layout div {
+  image-rendering: pixelated;
 }
