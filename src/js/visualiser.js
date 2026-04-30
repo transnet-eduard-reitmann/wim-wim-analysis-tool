@@ -1,22 +1,21 @@
 /**
- * visualiser.js — Renders the bridge channel layout heatmap and
- * multi-parameter train heatmap.
+ * visualiser.js — Renders the bridge channel layout heatmap and the
+ * vertical multi-parameter train heatmap.
  *
  * Depends on: ALARM_LIMITS, SEVERITY, RAIL_TYPE (from config/alarm-limits.js)
  */
 
 const Visualiser = (() => {
 
-  // Cell background colours for heatmap cells (light theme)
+  // Cell background colours — light backgrounds for nominal, vivid for exceedances
   const CELL_BG = {
-    [SEVERITY.NOMINAL]: '#dcfce7',  // green-100 — within limits
+    [SEVERITY.NOMINAL]: '#dcfce7',  // green-100
     [SEVERITY.TYPE1]:   '#fde68a',  // amber-200
     [SEVERITY.TYPE2]:   '#f97316',  // orange-500
     [SEVERITY.TYPE3]:   '#dc2626',  // red-600
-    noData: '#f3f4f6',              // gray-100 — no measurement
+    noData: '#f3f4f6',              // gray-100
   };
 
-  // Cell text colours
   const CELL_TEXT = {
     [SEVERITY.NOMINAL]: '#15803d',  // green-700
     [SEVERITY.TYPE1]:   '#92400e',  // amber-900
@@ -24,19 +23,54 @@ const Visualiser = (() => {
     [SEVERITY.TYPE3]:   '#ffffff',
   };
 
-  // Legend swatch colours (stronger than cell backgrounds)
   const LEGEND_BG = {
-    [SEVERITY.NOMINAL]: '#16a34a',  // green-600
-    [SEVERITY.TYPE1]:   '#d97706',  // amber-600
-    [SEVERITY.TYPE2]:   '#ea580c',  // orange-600
-    [SEVERITY.TYPE3]:   '#dc2626',  // red-600
+    [SEVERITY.NOMINAL]: '#16a34a',
+    [SEVERITY.TYPE1]:   '#d97706',
+    [SEVERITY.TYPE2]:   '#ea580c',
+    [SEVERITY.TYPE3]:   '#dc2626',
   };
 
-  // Channel layout colours (for bridge channel cells)
-  const CH_BG = { healthy: '#16a34a', warning: '#d97706', fault: '#dc2626', unknown: '#e5e7eb' };
+  const CH_BG   = { healthy: '#16a34a', warning: '#d97706', fault: '#dc2626', unknown: '#e5e7eb' };
   const CH_TEXT = { healthy: '#ffffff', warning: '#ffffff', fault: '#ffffff', unknown: '#9ca3af' };
 
-  // ── Severity classifiers (independent of analyser.js) ─────────────────────
+  // ── Custom floating tooltip ────────────────────────────────────────────────
+
+  let _tip = null;
+
+  function getTip() {
+    if (!_tip) {
+      _tip = document.createElement('div');
+      _tip.style.cssText =
+        'position:fixed;pointer-events:none;z-index:9999;display:none;' +
+        'background:rgba(17,24,39,0.93);color:#f9fafb;border-radius:6px;' +
+        'padding:6px 10px;font-size:11px;line-height:1.6;white-space:pre;' +
+        'max-width:260px;box-shadow:0 4px 12px rgba(0,0,0,0.25);font-family:monospace;';
+      document.body.appendChild(_tip);
+    }
+    return _tip;
+  }
+
+  function attachTooltip(el, text) {
+    el.style.cursor = 'default';
+    el.addEventListener('mouseenter', e => {
+      const tip = getTip();
+      tip.textContent = text;
+      tip.style.display = 'block';
+      _moveTip(e);
+    });
+    el.addEventListener('mousemove', _moveTip);
+    el.addEventListener('mouseleave', () => { getTip().style.display = 'none'; });
+  }
+
+  function _moveTip(e) {
+    const tip = getTip();
+    const x = Math.min(e.clientX + 14, window.innerWidth  - tip.offsetWidth  - 6);
+    const y = Math.min(e.clientY + 14, window.innerHeight - tip.offsetHeight - 6);
+    tip.style.left = x + 'px';
+    tip.style.top  = y + 'px';
+  }
+
+  // ── Severity classifiers ───────────────────────────────────────────────────
 
   function classifyDynLoad(kN, impactLimits) {
     if (kN == null || isNaN(kN)) return SEVERITY.NOMINAL;
@@ -65,50 +99,43 @@ const Visualiser = (() => {
   function classifySkew(pct) {
     if (pct == null || isNaN(pct)) return SEVERITY.NOMINAL;
     const limit = ALARM_LIMITS.skewLoading.type2;
-    if (pct >= limit)          return SEVERITY.TYPE2;
-    if (pct >= limit / 2)      return SEVERITY.TYPE1;  // visual warning at 6%
+    if (pct >= limit)         return SEVERITY.TYPE2;
+    if (pct >= limit / 2)     return SEVERITY.TYPE1;  // visual pre-warning at 6%
     return SEVERITY.NOMINAL;
   }
 
   // ── Bridge Channel Layout Heatmap ─────────────────────────────────────────
 
   /**
-   * Renders a physical bridge layout showing channel health as coloured cells.
+   * Renders a physical bridge layout showing channel health as coloured cells
+   * with a custom hover tooltip showing the exact offset value.
    *
-   * Channel mapping (per user specification):
-   *   01–13  Left rail vertical sensors
-   *   14–26  Right rail vertical sensors
-   *   27     Left rail lateral force sensor
-   *   28     Right rail lateral force sensor
-   *   29–32  Additional channels (shown if present)
+   * Ch 01–13 = left rail vertical sensors
+   * Ch 14–26 = right rail vertical sensors
+   * Ch 27    = left rail lateral sensor
+   * Ch 28    = right rail lateral sensor
+   * Ch 29–32 = additional channels (shown if present)
    */
   function renderChannelLayout(channelHealth, containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
     container.innerHTML = '';
 
-    // Index channel data by channel number string
     const byChannel = {};
     channelHealth.channels.forEach(c => { byChannel[c.channel] = c; });
 
-    // Channel groups
     const leftVert  = range(1, 13).map(pad2);
     const rightVert = range(14, 26).map(pad2);
-    const leftLat   = ['27'];
-    const rightLat  = ['28'];
     const extra     = range(29, 32).map(pad2).filter(ch => byChannel[ch]);
 
     const layout = el('div', 'display:flex;flex-direction:column;gap:6px;');
-
-    // Rail rows
-    layout.appendChild(buildRailRow('Left rail', leftVert, leftLat, byChannel));
+    layout.appendChild(buildRailRow('Left rail',  leftVert,  ['27'], byChannel));
     layout.appendChild(buildTrackBar());
-    layout.appendChild(buildRailRow('Right rail', rightVert, rightLat, byChannel));
-
+    layout.appendChild(buildRailRow('Right rail', rightVert, ['28'], byChannel));
     if (extra.length > 0) {
-      const extraRow = buildRailRow('Other', extra, [], byChannel);
-      extraRow.style.marginTop = '4px';
-      layout.appendChild(extraRow);
+      const r = buildRailRow('Other', extra, [], byChannel);
+      r.style.marginTop = '4px';
+      layout.appendChild(r);
     }
 
     // Legend
@@ -128,8 +155,7 @@ const Visualiser = (() => {
   }
 
   function buildRailRow(labelText, vertChs, latChs, byChannel) {
-    const row = el('div', 'display:flex;align-items:center;gap:4px;');
-
+    const row = el('div', 'display:flex;align-items:center;gap:4px;flex-wrap:wrap;');
     const lbl = el('div', 'font-size:11px;color:#6b7280;width:72px;flex-shrink:0;font-weight:500;');
     lbl.textContent = labelText;
     row.appendChild(lbl);
@@ -141,67 +167,53 @@ const Visualiser = (() => {
     if (latChs.length > 0) {
       const sep = el('div', 'width:1px;background:#d1d5db;margin:0 6px;align-self:stretch;');
       row.appendChild(sep);
-
-      const latLabel = el('div', 'font-size:10px;color:#9ca3af;flex-shrink:0;align-self:center;');
-      latLabel.textContent = 'Lateral:';
-      row.appendChild(latLabel);
-
-      const latCells = el('div', 'display:flex;gap:2px;margin-left:4px;');
-      latChs.forEach(ch => latCells.appendChild(buildChannelCell(ch, byChannel[ch])));
-      row.appendChild(latCells);
+      const latLbl = el('div', 'font-size:10px;color:#9ca3af;flex-shrink:0;align-self:center;margin-right:4px;');
+      latLbl.textContent = 'Lateral:';
+      row.appendChild(latLbl);
+      latChs.forEach(ch => {
+        if (byChannel[ch]) row.appendChild(buildChannelCell(ch, byChannel[ch]));
+      });
     }
-
     return row;
   }
 
   function buildChannelCell(ch, data) {
     const cell = el('div',
-      'width:28px;height:28px;border-radius:3px;display:flex;flex-direction:column;' +
-      'align-items:center;justify-content:center;font-size:9px;font-weight:700;' +
-      'flex-shrink:0;cursor:default;border:1px solid rgba(0,0,0,0.08);line-height:1;'
+      'width:28px;height:28px;border-radius:3px;display:flex;align-items:center;' +
+      'justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;' +
+      'border:1px solid rgba(0,0,0,0.08);line-height:1;'
     );
-
-    if (data) {
-      const status = data.status;
-      cell.style.backgroundColor = CH_BG[status] || CH_BG.unknown;
-      cell.style.color = CH_TEXT[status] || '#9ca3af';
-      cell.title = `Channel ${ch}\nOffset: ${data.value.toFixed(3)} t\nStatus: ${status.toUpperCase()}`;
-    } else {
-      cell.style.backgroundColor = CH_BG.unknown;
-      cell.style.color = '#9ca3af';
-      cell.title = `Channel ${ch}: no data`;
-    }
-
+    const status = data ? data.status : 'unknown';
+    cell.style.backgroundColor = CH_BG[status] || CH_BG.unknown;
+    cell.style.color = CH_TEXT[status] || '#9ca3af';
     cell.textContent = parseInt(ch, 10);
+
+    const tipText = data
+      ? `Channel ${ch}\nOffset: ${data.value.toFixed(3)} t\nStatus: ${status.toUpperCase()}`
+      : `Channel ${ch}: no data`;
+    attachTooltip(cell, tipText);
     return cell;
   }
 
   function buildTrackBar() {
     const wrap = el('div', 'display:flex;align-items:center;gap:4px;');
-    const spacer = el('div', 'width:72px;flex-shrink:0;');
-    const bar = el('div', 'height:3px;background:#374151;border-radius:2px;flex:1;');
-    const lbl = el('div', 'font-size:9px;color:#9ca3af;white-space:nowrap;padding:0 8px;');
-    lbl.textContent = '—— measurement bridge ——';
-    wrap.appendChild(spacer);
-    wrap.appendChild(bar);
+    wrap.appendChild(el('div', 'width:72px;flex-shrink:0;'));
+    wrap.appendChild(el('div', 'height:3px;background:#374151;border-radius:2px;flex:1;'));
     return wrap;
   }
 
-  // ── Multi-Parameter Train Heatmap ─────────────────────────────────────────
+  // ── Vertical Multi-Parameter Train Heatmap ────────────────────────────────
 
   /**
-   * Renders stacked parameter strips for the full train.
-   * A fixed label column is paired with a horizontally scrollable cell area
-   * so the parameter names stay visible while scrolling through long trains.
+   * Renders a vertical CSS-grid heatmap where each row is one axle and each
+   * column is one measurement parameter. This layout flows naturally onto
+   * subsequent PDF pages for long trains.
    *
-   * Parameter rows rendered:
-   *   Dynamic Load Left (kN)  — per wheel, per axle
-   *   Dynamic Load Right (kN)
-   *   Lateral Force Left (t)  — per wheel, per axle
-   *   Lateral Force Right (t)
-   *   Gauge Spreading (t)     — per axle (combined rail)
-   *   Side-to-Side Skew (%)   — per vehicle
-   *   End-to-End Skew (%)     — per vehicle
+   * Columns: Dyn Load L/R · Lateral Force L/R · Gauge Spreading · S-S Skew · E-E Skew
+   *
+   * Only non-nominal (exceedance) cells show their numeric value as text;
+   * nominal cells show only the green background. Hover shows exact values
+   * for all cells via a custom floating tooltip.
    */
   function renderMultiParamHeatmap(trainData, analysisResult, railType, containerId) {
     const container = document.getElementById(containerId);
@@ -210,180 +222,129 @@ const Visualiser = (() => {
 
     const { vehicles } = trainData;
     if (!vehicles || vehicles.length === 0) {
-      container.innerHTML = '<p style="color:#9ca3af;font-size:14px;">No vehicle data available.</p>';
+      container.innerHTML = '<p style="color:#9ca3af;">No vehicle data available.</p>';
       return;
     }
 
     const impactLimits = ALARM_LIMITS.wheelImpact[railType];
-    const CELL_W = 8;   // px per axle column
-    const ROW_H  = 10;  // px per parameter row
 
-    // Flat ordered list of all axles across all vehicles
-    const axleCols = [];
+    // Column definitions: { label (2-line), getAxleVal|getVehicleVal, classify, fmt, perVehicle }
+    const COLS = [
+      { label: 'Dyn Load\nLeft (kN)',  getAxleVal: a => a.dynamicLoadLeft_kN,   classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1), perVehicle: false },
+      { label: 'Dyn Load\nRight (kN)', getAxleVal: a => a.dynamicLoadRight_kN,  classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1), perVehicle: false },
+      { label: 'Lat Force\nLeft (t)',  getAxleVal: a => a.lateralForceLeft_t,   classify: classifyLateral,                      fmt: v => v.toFixed(2), perVehicle: false },
+      { label: 'Lat Force\nRight (t)', getAxleVal: a => a.lateralForceRight_t,  classify: classifyLateral,                      fmt: v => v.toFixed(2), perVehicle: false },
+      { label: 'Gauge\nSpread (t)',    getAxleVal: a => a.gaugeSpreadingForce_t, classify: classifyGauge,                        fmt: v => v.toFixed(2), perVehicle: false },
+      { label: 'Side-Side\nSkew (%)',  getVehicleVal: v => v.sideToSideSkew != null ? v.sideToSideSkew * 100 : null, classify: classifySkew, fmt: v => v.toFixed(1) + '%', perVehicle: true },
+      { label: 'End-End\nSkew (%)',    getVehicleVal: v => v.endToEndSkew   != null ? v.endToEndSkew   * 100 : null, classify: classifySkew, fmt: v => v.toFixed(1) + '%', perVehicle: true },
+    ];
+
+    const LABEL_W = 65;   // px — "A12" label column
+    const COL_W   = 56;   // px — each parameter column
+    const ROW_H   = 13;   // px — axle data row height
+    const VEH_H   = 20;   // px — vehicle separator row height
+    const TOTAL_W = LABEL_W + COLS.length * COL_W;
+
+    // ── Grid container ─────────────────────────────────
+    const grid = document.createElement('div');
+    grid.style.cssText =
+      `display:grid;` +
+      `grid-template-columns:${LABEL_W}px repeat(${COLS.length},${COL_W}px);` +
+      `width:${TOTAL_W}px;border-left:1px solid #e5e7eb;border-top:1px solid #e5e7eb;`;
+
+    // ── Sticky header row ──────────────────────────────
+    // Label/axle header cell
+    const axleHdr = el('div',
+      'position:sticky;top:0;z-index:5;background:#f9fafb;border-right:1px solid #e5e7eb;' +
+      'border-bottom:2px solid #d1d5db;padding:4px 4px 4px 6px;font-size:9px;' +
+      'font-weight:600;color:#6b7280;display:flex;align-items:flex-end;'
+    );
+    axleHdr.textContent = 'V / Axle';
+    grid.appendChild(axleHdr);
+
+    COLS.forEach(col => {
+      const hdr = el('div',
+        'position:sticky;top:0;z-index:5;background:#f9fafb;border-right:1px solid #e5e7eb;' +
+        'border-bottom:2px solid #d1d5db;padding:4px 2px;font-size:9px;font-weight:600;' +
+        'color:#6b7280;text-align:center;line-height:1.3;'
+      );
+      hdr.innerHTML = col.label.replace('\n', '<br>');
+      grid.appendChild(hdr);
+    });
+
+    // ── Data rows — one vehicle block at a time ────────
     vehicles.forEach(v => {
-      v.axles.forEach((axle, idx) => {
-        axleCols.push({ vPos: v.vPos, axleNum: axle.axleNum, isFirst: idx === 0, axle, vData: v });
+      // Pre-compute vehicle-level values
+      const vVals = {};
+      COLS.filter(c => c.perVehicle).forEach(c => {
+        vVals[c.label] = c.getVehicleVal(v);
+      });
+
+      // Vehicle separator row (spans all columns)
+      const vHdr = el('div',
+        `grid-column:1/-1;background:#f3f4f6;border-top:2px solid #cbd5e1;` +
+        `border-bottom:1px solid #e2e8f0;padding:0 8px;` +
+        `height:${VEH_H}px;display:flex;align-items:center;` +
+        `font-size:10px;font-weight:600;color:#374151;gap:10px;`
+      );
+      const vIdStr = v.vehicleId ? ` · ${v.vehicleId.trim()}` : '';
+      const vMassStr = v.mass_t ? ` · ${v.mass_t.toFixed(1)} t` : '';
+      vHdr.textContent = `Vehicle ${v.vPos}${vIdStr}${vMassStr} · ${v.axles.length} axles`;
+      grid.appendChild(vHdr);
+
+      // Axle rows
+      v.axles.forEach((axle, aIdx) => {
+        // Axle label cell
+        const lblCell = el('div',
+          `height:${ROW_H}px;display:flex;align-items:center;padding:0 4px 0 6px;` +
+          `font-size:9px;color:#9ca3af;border-right:1px solid #e5e7eb;` +
+          `border-bottom:1px solid #f3f4f6;background:#fafafa;`
+        );
+        lblCell.textContent = `A${axle.axleNum}`;
+        grid.appendChild(lblCell);
+
+        // Parameter cells
+        COLS.forEach(col => {
+          const val = col.perVehicle ? vVals[col.label] : col.getAxleVal(axle);
+          const sev = val != null ? col.classify(val) : null;
+          const bg  = sev != null ? CELL_BG[sev] : CELL_BG.noData;
+          const fg  = sev != null ? CELL_TEXT[sev] : 'transparent';
+
+          const cell = el('div',
+            `height:${ROW_H}px;background:${bg};border-right:1px solid rgba(0,0,0,0.05);` +
+            `border-bottom:1px solid rgba(0,0,0,0.04);display:flex;align-items:center;` +
+            `justify-content:center;font-size:8px;font-weight:700;color:${fg};overflow:hidden;`
+          );
+
+          // Show numeric value only for non-nominal exceedances
+          const showValue = sev != null && sev !== SEVERITY.NOMINAL;
+          // For vehicle-level skew, only show text on first axle of vehicle
+          const showSkewText = col.perVehicle && aIdx === 0;
+          if (showValue && (!col.perVehicle || showSkewText)) {
+            cell.textContent = col.fmt(val);
+          }
+
+          // Tooltip for all cells that have a measurement
+          if (val != null) {
+            const sevLabel = sev !== SEVERITY.NOMINAL ? `\n⚠ Severity: ${sev}` : '';
+            const tipText =
+              `V${v.vPos} · Axle ${axle.axleNum}\n` +
+              `${col.label.replace('\n', ' ')}: ${col.fmt(val)}` + sevLabel;
+            attachTooltip(cell, tipText);
+          } else {
+            attachTooltip(cell, `V${v.vPos} · Axle ${axle.axleNum}\n${col.label.replace('\n', ' ')}: no data`);
+          }
+
+          grid.appendChild(cell);
+        });
       });
     });
 
-    if (axleCols.length === 0) {
-      container.innerHTML = '<p style="color:#9ca3af;font-size:14px;">No axle data found.</p>';
-      return;
-    }
-
-    // ── Parameter definitions ──────────────────────────
-    const paramGroups = [
-      {
-        label: 'Dynamic Load',
-        rows: [
-          { label: 'Left wheel (kN)',  getValue: col => col.axle.dynamicLoadLeft_kN,  classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1) + ' kN' },
-          { label: 'Right wheel (kN)', getValue: col => col.axle.dynamicLoadRight_kN, classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1) + ' kN' },
-        ],
-      },
-      {
-        label: 'Lateral Force',
-        rows: [
-          { label: 'Left wheel (t)',  getValue: col => col.axle.lateralForceLeft_t,  classify: classifyLateral, fmt: v => v.toFixed(2) + ' t' },
-          { label: 'Right wheel (t)', getValue: col => col.axle.lateralForceRight_t, classify: classifyLateral, fmt: v => v.toFixed(2) + ' t' },
-        ],
-      },
-      {
-        label: 'Gauge Spreading',
-        rows: [
-          { label: 'Force (t)', getValue: col => col.axle.gaugeSpreadingForce_t, classify: classifyGauge, fmt: v => v.toFixed(2) + ' t' },
-        ],
-      },
-    ];
-
-    const vehicleGroups = [
-      {
-        label: 'Skew Loading',
-        rows: [
-          { label: 'Side-to-Side (%)', getValue: v => v.sideToSideSkew != null ? v.sideToSideSkew * 100 : null, classify: classifySkew, fmt: v => v.toFixed(1) + '%' },
-          { label: 'End-to-End (%)',   getValue: v => v.endToEndSkew   != null ? v.endToEndSkew   * 100 : null, classify: classifySkew, fmt: v => v.toFixed(1) + '%' },
-        ],
-      },
-    ];
-
-    // ── Build DOM ──────────────────────────────────────
-
-    // Label column (fixed) + scrollable cells column
-    const wrapper = el('div', 'display:flex;align-items:flex-start;');
-
-    const labelCol = el('div', 'flex-shrink:0;width:130px;');
-    const scrollCol = el('div', 'flex:1;min-width:0;overflow-x:auto;');
-    scrollCol.className = 'heatmap-scroll';
-
-    const cellsWrap = el('div', 'display:inline-flex;flex-direction:column;min-width:max-content;');
-
-    // Helper: add one label entry and one cell row simultaneously
-    function addRow(labelText, cellRow, isGroupLabel) {
-      const h = isGroupLabel ? '14px' : ROW_H + 'px';
-      const lbl = el('div', `height:${h};line-height:${h};font-size:${isGroupLabel ? '9' : '10'}px;` +
-        `color:${isGroupLabel ? '#9ca3af' : '#6b7280'};white-space:nowrap;` +
-        `${isGroupLabel ? 'text-transform:uppercase;letter-spacing:0.05em;' : 'font-weight:500;'}`);
-      lbl.textContent = labelText;
-      labelCol.appendChild(lbl);
-      cellsWrap.appendChild(cellRow);
-    }
-
-    function addSpacer(h) {
-      const ls = el('div', `height:${h};`); labelCol.appendChild(ls);
-      const cs = el('div', `height:${h};`); cellsWrap.appendChild(cs);
-    }
-
-    // Build one row of axle-level cells
-    function buildAxleRow(stripDef) {
-      const row = el('div', `display:flex;height:${ROW_H}px;`);
-      axleCols.forEach(col => {
-        const val = stripDef.getValue(col);
-        const sev = val != null ? stripDef.classify(val) : null;
-        const bg  = sev != null ? CELL_BG[sev] : CELL_BG.noData;
-        const cell = el('div',
-          `width:${CELL_W}px;height:${ROW_H}px;flex-shrink:0;box-sizing:border-box;background:${bg};` +
-          (col.isFirst && col !== axleCols[0] ? 'border-left:1px solid #d1d5db;' : '')
-        );
-        if (val != null) {
-          cell.title = `V${col.vPos} · Axle ${col.axleNum}\n${stripDef.label}: ${stripDef.fmt(val)}` +
-                       (sev !== SEVERITY.NOMINAL ? `\n⚠ Severity: ${sev}` : '');
-        }
-        row.appendChild(cell);
-      });
-      return row;
-    }
-
-    // Build one row of vehicle-level cells (one wide cell per vehicle)
-    function buildVehicleRow(stripDef) {
-      const row = el('div', `display:flex;height:${ROW_H}px;`);
-      vehicles.forEach((v, vIdx) => {
-        const cellW = v.axles.length * CELL_W;
-        const val = stripDef.getValue(v);
-        const sev = val != null ? stripDef.classify(val) : null;
-        const bg  = sev != null ? CELL_BG[sev] : CELL_BG.noData;
-        const fg  = sev != null ? CELL_TEXT[sev] : '#9ca3af';
-        const cell = el('div',
-          `width:${cellW}px;height:${ROW_H}px;flex-shrink:0;box-sizing:border-box;background:${bg};` +
-          `display:flex;align-items:center;justify-content:center;` +
-          `font-size:8px;font-weight:600;color:${fg};overflow:hidden;` +
-          (vIdx > 0 ? 'border-left:1px solid #d1d5db;' : '')
-        );
-        if (val != null) {
-          cell.title = `V${v.vPos}: ${stripDef.label}: ${stripDef.fmt(val)}` +
-                       (sev !== SEVERITY.NOMINAL ? `\n⚠ Severity: ${sev}` : '');
-          if (cellW > 28) cell.textContent = stripDef.fmt(val);
-        }
-        row.appendChild(cell);
-      });
-      return row;
-    }
-
-    // Build vehicle label row at bottom
-    function buildVehicleLabelRow() {
-      const row = el('div', 'display:flex;margin-top:3px;');
-      vehicles.forEach((v, vIdx) => {
-        const cellW = v.axles.length * CELL_W;
-        const cell = el('div',
-          `width:${cellW}px;flex-shrink:0;font-size:9px;color:#9ca3af;text-align:center;` +
-          `overflow:hidden;text-overflow:ellipsis;white-space:nowrap;` +
-          (vIdx > 0 ? 'border-left:1px solid #e5e7eb;' : '')
-        );
-        if (cellW > 14) cell.textContent = `V${v.vPos}`;
-        row.appendChild(cell);
-      });
-      return row;
-    }
-
-    // ── Assemble rows ──────────────────────────────────
-
-    paramGroups.forEach((group, gIdx) => {
-      if (gIdx > 0) addSpacer('6px');
-      addRow(group.label, el('div', 'height:14px;'), true);
-      group.rows.forEach((row, rIdx) => {
-        if (rIdx > 0) addSpacer('1px');
-        addRow(row.label, buildAxleRow(row), false);
-      });
-    });
-
-    vehicleGroups.forEach(group => {
-      addSpacer('6px');
-      addRow(group.label, el('div', 'height:14px;'), true);
-      group.rows.forEach((row, rIdx) => {
-        if (rIdx > 0) addSpacer('1px');
-        addRow(row.label, buildVehicleRow(row), false);
-      });
-    });
-
-    // Vehicle labels at the bottom
-    addSpacer('2px');
-    const lblSpacer = el('div', 'height:16px;'); labelCol.appendChild(lblSpacer);
-    cellsWrap.appendChild(buildVehicleLabelRow());
-
-    scrollCol.appendChild(cellsWrap);
-    wrapper.appendChild(labelCol);
-    wrapper.appendChild(scrollCol);
-    container.appendChild(wrapper);
-
-    // Legend
+    // Wrap grid in vertical scroll container (for screen only — PDF expands it)
+    const scrollWrap = document.createElement('div');
+    scrollWrap.className = 'heatmap-v-scroll';
+    scrollWrap.appendChild(grid);
+    container.appendChild(scrollWrap);
     container.appendChild(buildLegend());
   }
 
@@ -392,10 +353,10 @@ const Visualiser = (() => {
   function buildLegend() {
     const legend = el('div', 'display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;');
     [
-      { sev: SEVERITY.NOMINAL, label: 'Nominal' },
-      { sev: SEVERITY.TYPE1,   label: 'Type 1 (depot)' },
-      { sev: SEVERITY.TYPE2,   label: 'Type 2 (station)' },
-      { sev: SEVERITY.TYPE3,   label: 'Type 3 (stop)' },
+      { sev: SEVERITY.NOMINAL, label: 'Nominal (within limits)' },
+      { sev: SEVERITY.TYPE1,   label: 'Type 1 — Continue to depot' },
+      { sev: SEVERITY.TYPE2,   label: 'Type 2 — Continue to station' },
+      { sev: SEVERITY.TYPE3,   label: 'Type 3 — Stop train' },
     ].forEach(item => {
       const e = el('div', 'display:flex;align-items:center;gap:6px;font-size:11px;color:#6b7280;');
       e.innerHTML = `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${LEGEND_BG[item.sev]}"></span>${item.label}`;
@@ -404,7 +365,6 @@ const Visualiser = (() => {
     return legend;
   }
 
-  // Convenience: create an element with inline style
   function el(tag, style) {
     const e = document.createElement(tag);
     if (style) e.style.cssText = style;

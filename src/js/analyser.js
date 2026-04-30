@@ -237,6 +237,12 @@ const Analyser = (() => {
       reasons.push(`${(stats.exceedanceRate * 100).toFixed(1)}% of measured wheels exceed limits — this rate is too high to be explained by genuine wheel defects across an entire train.`);
     }
 
+    // High raw count of exceedances — statistically implausible for genuine defects
+    if (stats.totalExceedances > 10) {
+      falseSignals += 2;
+      reasons.push(`${stats.totalExceedances} individual exceedances recorded across the train. In practice, more than 10 exceedances in a single pass strongly suggests a system measurement issue (faulty channel, calibration drift, or electrical interference) rather than coincidental defects across many wheels.`);
+    }
+
     // --- True alarm indicators ---
     if (stats.type3Count > 0) {
       trueSignals += 3;

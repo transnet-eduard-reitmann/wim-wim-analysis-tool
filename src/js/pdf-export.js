@@ -16,16 +16,18 @@ const PdfExport = (() => {
 
     const filename = buildFilename(meta);
 
-    // Expand heatmap scroll containers so the full width is captured
-    const scrollEls = Array.from(element.querySelectorAll('.heatmap-scroll'));
+    // Expand all scroll containers so the full content is captured
+    const scrollEls = Array.from(element.querySelectorAll('.heatmap-scroll, .heatmap-v-scroll'));
     const savedStyles = scrollEls.map(el => ({
       el,
-      overflow: el.style.overflow,
-      maxWidth: el.style.maxWidth,
+      overflow:  el.style.overflow,
+      maxWidth:  el.style.maxWidth,
+      maxHeight: el.style.maxHeight,
     }));
     scrollEls.forEach(el => {
-      el.style.overflow = 'visible';
-      el.style.maxWidth = 'none';
+      el.style.overflow  = 'visible';
+      el.style.maxWidth  = 'none';
+      el.style.maxHeight = 'none';
     });
 
     const btn = document.getElementById('download-btn');
@@ -45,10 +47,11 @@ const PdfExport = (() => {
       .from(element)
       .save()
       .then(() => {
-        // Restore original overflow styles
-        savedStyles.forEach(({ el, overflow, maxWidth }) => {
-          el.style.overflow = overflow;
-          el.style.maxWidth = maxWidth;
+        // Restore original styles
+        savedStyles.forEach(({ el, overflow, maxWidth, maxHeight }) => {
+          el.style.overflow  = overflow;
+          el.style.maxWidth  = maxWidth;
+          el.style.maxHeight = maxHeight;
         });
         if (btn) btn.style.display = '';
       });

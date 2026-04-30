@@ -27,12 +27,26 @@
   border-radius: 3px;
 }
 
+/* Vertical heatmap scroll container — scrolls vertically on screen, flows freely for PDF */
+.heatmap-v-scroll {
+  overflow-y: auto;
+  max-height: 560px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+}
+
 /* Print / PDF overrides */
 @media print {
   /* Show full heatmap width — do not clip */
   .heatmap-scroll {
     overflow: visible !important;
     max-width: none !important;
+  }
+
+  /* Expand vertical heatmap — flow to next page */
+  .heatmap-v-scroll {
+    overflow: visible !important;
+    max-height: none !important;
   }
 
   /* Hide interactive-only elements */

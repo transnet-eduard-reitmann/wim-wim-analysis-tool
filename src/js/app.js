@@ -97,7 +97,6 @@
     renderChannelSummaryCards();
     Visualiser.renderChannelLayout(analysisResult.channelHealth, 'channel-layout');
     Visualiser.renderMultiParamHeatmap(trainData, analysisResult, currentRailType, 'heatmap-container');
-    renderVehicleSummaryTable();
     renderExceedanceTable();
     renderConclusions();
   }
@@ -143,26 +142,6 @@
     setText('ch-healthy', total - faultCount - warningCount);
     setText('ch-warning', warningCount);
     setText('ch-fault',   faultCount);
-  }
-
-  function renderVehicleSummaryTable() {
-    const tbody = document.getElementById('vehicle-summary-body');
-    if (!tbody) return;
-
-    tbody.innerHTML = analysisResult.vehicleResults.map(v => {
-      const sevClass = severityClass(v.worstSeverity);
-      const vData = trainData.vehicles.find(vd => vd.vPos === v.vPos);
-      const skewPct = vData && vData.sideToSideSkew != null
-        ? (vData.sideToSideSkew * 100).toFixed(1) + '%' : '—';
-      return `<tr class="border-b border-gray-100">
-        <td class="py-1 px-2 text-gray-700">${v.vPos}</td>
-        <td class="py-1 px-2 text-gray-500 text-xs font-mono">${v.vehicleId || '—'}</td>
-        <td class="py-1 px-2 text-gray-800">${v.mass_t != null ? v.mass_t.toFixed(1) + ' t' : '—'}</td>
-        <td class="py-1 px-2 text-gray-700">${skewPct}</td>
-        <td class="py-1 px-2 text-gray-700">${v.exceedances.length}</td>
-        <td class="py-1 px-2 font-semibold ${sevClass}">${severityLabel(v.worstSeverity)}</td>
-      </tr>`;
-    }).join('');
   }
 
   function renderExceedanceTable() {
