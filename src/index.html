@@ -8,9 +8,6 @@
   <!-- Tailwind CSS (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- html2pdf.js -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body class="min-h-screen bg-gray-50 font-sans">
@@ -73,7 +70,7 @@
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
           </svg>
-          Download PDF Report
+          Print / Save as PDF
         </button>
       </div>
 
@@ -93,21 +90,21 @@
       </div>
 
       <!-- 2. Executive Summary / Verdict -->
-      <div>
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
         <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Executive Summary</h2>
         <div id="verdict-banner" class="rounded-xl p-5 border-2 bg-gray-50 border-gray-300">
-          <div class="flex items-start justify-between gap-4 flex-wrap">
-            <div>
-              <div id="verdict-text" class="text-2xl font-bold tracking-wide">—</div>
-              <div id="verdict-confidence" class="text-sm mt-1 opacity-75"></div>
-            </div>
-          </div>
+          <div id="verdict-text" class="text-2xl font-bold tracking-wide">—</div>
+          <div id="verdict-confidence" class="text-sm mt-1 opacity-75"></div>
           <ul id="verdict-reasons" class="mt-4 space-y-1.5 text-sm list-disc list-inside opacity-90"></ul>
         </div>
+        <ul id="conclusions-list" class="text-sm text-gray-700 space-y-1.5 list-disc list-inside mt-4"></ul>
+        <p class="text-xs text-gray-400 mt-4">
+          Analysis based on BBD5249 v3.1 alarm limits. This tool is a decision-support aid — all assessments must be reviewed by a qualified technician before action is taken.
+        </p>
       </div>
 
       <!-- 3. System Diagnostics — Channel Health -->
-      <div class="bg-white rounded-xl border border-gray-200 p-5">
+      <div class="bg-white rounded-xl border border-gray-200 p-5 print-break-after">
         <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">System Diagnostics — Bridge Channel Health</h2>
 
         <!-- Summary cards -->
@@ -143,8 +140,11 @@
       <div class="bg-white rounded-xl border border-gray-200 p-5">
         <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-1">Train Overview — Multi-Parameter Heatmap</h2>
         <p class="text-xs text-gray-400 mb-4">
-          Each block = one axle measurement. Blocks are grouped into <strong class="text-blue-500">Vertical Force</strong> (Dyn Load · Skew)
-          and <strong class="text-purple-500">Lateral Force</strong> (Lat Force · Gauge Spreading) parameter sets.
+          Each row = one axle. Columns are grouped into
+          <strong class="text-cyan-600">Measurements</strong> (actual vertical loads in t · axle load · bogie load as merged blocks),
+          <strong class="text-blue-500">Vertical Force Alarms</strong> (Dyn Load kN · Skew) and
+          <strong class="text-purple-500">Lateral Force Alarms</strong> (Lat Force · Gauge Spreading).
+          Measurement cells show the value directly; alarm cells use colour to indicate severity.
           Hover any block for its exact value. Vehicle number, ID and mass are shown in the left sidebar.
         </p>
         <div id="heatmap-container"></div>
@@ -169,15 +169,6 @@
             <tbody id="exceedance-table-body"></tbody>
           </table>
         </div>
-      </div>
-
-      <!-- 7. Conclusions and Recommendations -->
-      <div class="bg-white rounded-xl border border-gray-200 p-5">
-        <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Conclusions &amp; Recommendations</h2>
-        <ul id="conclusions-list" class="text-sm text-gray-700 space-y-2 list-disc list-inside"></ul>
-        <p class="text-xs text-gray-400 mt-4">
-          Analysis based on BBD5249 v3.1 alarm limits. This tool is a decision-support aid — all assessments must be reviewed by a qualified technician before action is taken.
-        </p>
       </div>
 
     </section>

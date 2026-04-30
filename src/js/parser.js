@@ -186,6 +186,11 @@ const Parser = (() => {
       }
     }
 
+    const bogieMasses = massBogieRows.map(r => ({
+      bogieNum: parseInt(r[9], 10),
+      mass_t:   parseFloat(r[11]),
+    })).sort((a, b) => a.bogieNum - b.bogieNum);
+
     // Per-axle data — collect all unique axle numbers
     const axleNums = [...new Set(
       rows.filter(r => r[8] === 'Dynamic Load [A]').map(r => parseInt(r[9], 10))
@@ -222,6 +227,7 @@ const Parser = (() => {
       sideToSideSkew,
       endToEndSkew,
       skewnessBogie,
+      bogieMasses,
       axles,
     };
   }

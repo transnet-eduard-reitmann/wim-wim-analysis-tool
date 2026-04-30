@@ -37,6 +37,18 @@
 
 /* Print / PDF overrides */
 @media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  /* Force background colours and images to print without the user needing to
+     tick "Background graphics" in the print dialog. */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
   /* Show full heatmap width — do not clip */
   .heatmap-scroll {
     overflow: visible !important;
@@ -49,9 +61,20 @@
     max-height: none !important;
   }
 
+  /* Remove max-width constraint so the report uses the full page width */
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
   /* Hide interactive-only elements */
   .print\:hidden {
     display: none !important;
+  }
+
+  /* Force a page break after the marked section */
+  .print-break-after {
+    break-after: page;
   }
 
   body {
