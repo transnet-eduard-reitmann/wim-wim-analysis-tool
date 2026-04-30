@@ -247,11 +247,16 @@ const Visualiser = (() => {
   /**
    * Renders a block-grid heatmap where each row is one axle. Parameters are
    * split into three visually distinct column groups:
-   *   * Measurements    — Bogie Load (merged) · Vert Load L/R · Axle Load (tonnes)
-   *   * Vertical Alarms — Dyn Load L/R (kN) · S-S Skew · E-E Skew
+   *   * Measurements    — Vehicle Mass (merged) · Bogie Load (merged) · Mass L (merged) · Mass R (merged)
+   *   * Vertical Alarms — Dyn Load L/R (kN) · Side-to-Side Skew · End-to-End Skew
    *   * Lateral Alarms  — Lat Force L/R · Gauge Spreading
    *
-   * Measurement blocks show their value as text. Alarm blocks use colour only.
+   * Measurement columns are vehicle/bogie-level merged blocks. Alarm columns are
+   * per-axle colour blocks. Skew values are the only calculated quantities (computed
+   * from side masses / bogie masses); all other values are extracted directly from
+   * the raw condition file. Dynamic load unit conversion (t → kN) is applied for
+   * alarm-limit comparison only.
+   *
    * Hover tooltips carry exact values and severity on all blocks.
    */
   function renderMultiParamHeatmap(trainData, analysisResult, railType, containerId) {
@@ -266,20 +271,6 @@ const Visualiser = (() => {
     }
 
     const impactLimits = ALARM_LIMITS.wheelImpact[railType];
-
-    // ── Measurement columns (informational, no alarm colour) ─────────────────
-    const MEAS_COLS = [
-      { key: 'vertL',    label: 'Vertical\nLoad L', unit: 't',
-        getAxleVal: a => a.dynamicLoadLeft_t,
-        fmt: v => v.toFixed(1) },
-      { key: 'vertR',    label: 'Vertical\nLoad R', unit: 't',
-        getAxleVal: a => a.dynamicLoadRight_t,
-        fmt: v => v.toFixed(1) },
-      { key: 'axleLoad', label: 'Axle\nLoad',       unit: 't',
-        getAxleVal: a => (a.dynamicLoadLeft_t != null && a.dynamicLoadRight_t != null)
-                         ? a.dynamicLoadLeft_t + a.dynamicLoadRight_t : null,
-        fmt: v => v.toFixed(1) },
-    ];
 
     // ── Alarm column definitions ──────────────────────────────────────────────
     const VERT_DYN_COLS = [
@@ -303,8 +294,7 @@ const Visualiser = (() => {
     const AXLE_W     = 46;
     const INFO_W     = VROT_W + AXLE_W;                                    // 64
     const BOGIE_W    = BW;                                                  // 38 — merged bogie column
-    const measColsW  = MEAS_COLS.length      * (BW + BG) - BG;             // 120
-    const measGroupW = BOGIE_W + BG + measColsW;                            // 161
+    const measGroupW = 4 * BW + 3 * BG;                                    // 161 — total mass · bogie · mass L · mass R
     const dynW       = VERT_DYN_COLS.length  * (BW + BG) - BG;             // 79
     const skewW      = VERT_SKEW_COLS.length * (BW + BG) - BG;             // 79
     const vertW      = dynW + GG + skewW;                                   // 174
@@ -382,16 +372,22 @@ const Visualiser = (() => {
     colRow.appendChild(axleHdrCell);
     colRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
 
-    // Bogie column header (within Measurements group)
-    const bogieHdrEl = el('div',
-      `width:${BOGIE_W}px;flex-shrink:0;text-align:center;font-size:7.5px;font-weight:700;` +
-      `color:#0e7490;line-height:1.3;background:#ecfeff;border-radius:2px 2px 0 0;padding:2px 1px 4px;`
-    );
-    bogieHdrEl.innerHTML = 'Bogie<br>Load<br><span style="font-size:6.5px;opacity:0.65;font-weight:400;">(t, merged)</span>';
-    colRow.appendChild(bogieHdrEl);
-    colRow.appendChild(el('div', `width:${BG}px;flex-shrink:0;`));
-
-    colRow.appendChild(mkColHdrs(MEAS_COLS, '#0e7490', '#ecfeff', '#a5f3fc', 't'));
+    // Measurement group — 4 merged-block column headers
+    function mkMeasHdr(html) {
+      const h = el('div',
+        `width:${BW}px;flex-shrink:0;text-align:center;font-size:7.5px;font-weight:700;` +
+        `color:#0e7490;line-height:1.3;background:#ecfeff;border-radius:2px 2px 0 0;padding:2px 1px 4px;`
+      );
+      h.innerHTML = html;
+      return h;
+    }
+    const sub = s => `<br><span style="font-size:6.5px;opacity:0.65;font-weight:400;">${s}</span>`;
+    const measHdrWrap = el('div', `display:flex;gap:${BG}px;flex-shrink:0;`);
+    measHdrWrap.appendChild(mkMeasHdr(`Vehicle<br>Mass${sub('(t, total)')}`));
+    measHdrWrap.appendChild(mkMeasHdr(`Bogie<br>Load${sub('(t, merged)')}`));
+    measHdrWrap.appendChild(mkMeasHdr(`Mass<br>Left${sub('(t)')}`));
+    measHdrWrap.appendChild(mkMeasHdr(`Mass<br>Right${sub('(t)')}`));
+    colRow.appendChild(measHdrWrap);
     colRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
 
     // Vertical alarms — dynamic load sub-group | separator | skew sub-group
@@ -432,9 +428,8 @@ const Visualiser = (() => {
         `font-size:8px;font-weight:700;color:#475569;letter-spacing:0.03em;` +
         `white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`
       );
-      const vIdPart   = v.vehicleId && v.vehicleId.trim() ? ` · ${v.vehicleId.trim()}` : '';
-      const vMassPart = v.mass_t ? ` · ${v.mass_t.toFixed(1)} t` : '';
-      rotText.textContent = `V${v.vPos}${vIdPart}${vMassPart}`;
+      const vIdPart = v.vehicleId && v.vehicleId.trim() ? ` · ${v.vehicleId.trim()}` : '';
+      rotText.textContent = `V${v.vPos}${vIdPart}`;
       rotCol.appendChild(rotText);
       vBlock.appendChild(rotCol);
 
@@ -454,6 +449,10 @@ const Visualiser = (() => {
 
       // ── Gap between sidebar and measurement group ─────
       vBlock.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
+
+      // ── Vehicle total mass column ─────────────────────
+      vBlock.appendChild(buildVehicleMassCell(v.mass_t, 'Total', v, vTotalH, BW));
+      vBlock.appendChild(el('div', `width:${BG}px;flex-shrink:0;`));
 
       // ── Bogie merged column ───────────────────────────
       const bogieColDiv = el('div', `width:${BOGIE_W}px;flex-shrink:0;display:flex;flex-direction:column;`);
@@ -476,19 +475,16 @@ const Visualiser = (() => {
       vBlock.appendChild(bogieColDiv);
       vBlock.appendChild(el('div', `width:${BG}px;flex-shrink:0;`));
 
+      // ── Vehicle mass left/right columns ──────────────
+      vBlock.appendChild(buildVehicleMassCell(v.massLeft_t,  'Left',  v, vTotalH, BW));
+      vBlock.appendChild(el('div', `width:${BG}px;flex-shrink:0;`));
+      vBlock.appendChild(buildVehicleMassCell(v.massRight_t, 'Right', v, vTotalH, BW));
+      vBlock.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
+
       // ── Axle data blocks ──────────────────────────────
       const blocksArea = el('div', `display:flex;flex-direction:column;gap:${BG}px;`);
       v.axles.forEach(axle => {
         const row = el('div', `display:flex;align-items:center;height:${BH}px;`);
-
-        // Measurement columns — informational, text shown in cell
-        const mg = el('div', `display:flex;gap:${BG}px;`);
-        MEAS_COLS.forEach(col => {
-          mg.appendChild(buildMeasBlock(col.getAxleVal(axle), col, v, axle, BW, BH));
-        });
-        row.appendChild(mg);
-
-        row.appendChild(mkDivider());
 
         // Vertical alarms — dynamic load sub-group
         const dynG = el('div', `display:flex;gap:${BG}px;`);
@@ -561,6 +557,30 @@ const Visualiser = (() => {
       valDiv.textContent = mass_t.toFixed(1);
       cell.appendChild(valDiv);
       attachTooltip(cell, `V${vehicle.vPos} · Bogie ${bogieNum}\nBogie Load: ${mass_t.toFixed(2)} t`);
+    }
+    return cell;
+  }
+
+  // Vehicle-level merged cell (total mass, mass left, mass right) — spans full vehicle height.
+  function buildVehicleMassCell(mass_t, label, vehicle, cellH, cellW) {
+    const hasMass = mass_t != null && !isNaN(mass_t);
+    const cell    = el('div',
+      `width:${cellW}px;height:${cellH}px;border-radius:4px;flex-shrink:0;` +
+      `background:${hasMass ? '#ecfeff' : '#f3f4f6'};border:1px solid rgba(0,0,0,0.07);` +
+      `display:flex;flex-direction:column;align-items:center;justify-content:center;` +
+      `font-size:7.5px;font-weight:700;color:#0e7490;line-height:1.4;overflow:hidden;`
+    );
+    if (hasMass) {
+      if (cellH >= 40) {
+        const lbl = el('div', `font-size:6.5px;opacity:0.7;font-weight:400;`);
+        lbl.textContent = label;
+        cell.appendChild(lbl);
+      }
+      const valDiv = el('div', ``);
+      valDiv.textContent = mass_t.toFixed(1);
+      cell.appendChild(valDiv);
+      const tipLabel = label === 'Total' ? 'Vehicle Mass (Total)' : `Vehicle Mass (${label} side)`;
+      attachTooltip(cell, `V${vehicle.vPos} · ${tipLabel}\n${mass_t.toFixed(2)} t`);
     }
     return cell;
   }
