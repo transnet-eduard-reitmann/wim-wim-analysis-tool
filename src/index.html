@@ -97,7 +97,6 @@
           <div id="verdict-confidence" class="text-sm mt-1 opacity-75"></div>
           <ul id="verdict-reasons" class="mt-4 space-y-1.5 text-sm list-disc list-inside opacity-90"></ul>
         </div>
-        <ul id="conclusions-list" class="text-sm text-gray-700 space-y-1.5 list-disc list-inside mt-4"></ul>
         <p class="text-xs text-gray-400 mt-4">
           Analysis based on BBD5249 v3.1 alarm limits. This tool is a decision-support aid — all assessments must be reviewed by a qualified technician before action is taken.
         </p>
@@ -142,7 +141,8 @@
         <p class="text-xs text-gray-400 mb-4">
           Each row = one axle. Columns are grouped into
           <strong class="text-cyan-600">Measurements</strong> (actual vertical loads in t · axle load · bogie load as merged blocks),
-          <strong class="text-blue-500">Vertical Force Alarms</strong> (Dyn Load kN · Skew) and
+          <strong class="text-blue-500">Dynamic Load</strong> (Dyn Load kN per wheel),
+          <strong class="text-blue-500">Skew Loading</strong> (side-to-side and end-to-end skew) and
           <strong class="text-purple-500">Lateral Force Alarms</strong> (Lat Force · Gauge Spreading).
           Measurement cells show the value directly; alarm cells use colour to indicate severity.
           Hover any block for its exact value. Vehicle number, ID and mass are shown in the left sidebar.

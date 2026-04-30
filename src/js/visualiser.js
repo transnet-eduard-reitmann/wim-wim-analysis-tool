@@ -246,16 +246,15 @@ const Visualiser = (() => {
 
   /**
    * Renders a block-grid heatmap where each row is one axle. Parameters are
-   * split into three visually distinct column groups:
-   *   * Measurements    — Vehicle Mass (merged) · Bogie Load (merged) · Mass L (merged) · Mass R (merged)
-   *   * Vertical Alarms — Dyn Load L/R (kN) · Side-to-Side Skew · End-to-End Skew
-   *   * Lateral Alarms  — Lat Force L/R · Gauge Spreading
+   * split into five visually distinct column groups:
+   *   * Measurements         — Vehicle Mass (merged) · Bogie Load (merged) · Mass L (merged) · Mass R (merged)
+   *   * Vertical Force Alarms — Dyn Load L/R (kN, per axle, alarm-coloured)
+   *   * Skew Loading          — Side-to-Side Skew · End-to-End Skew (merged vehicle blocks, alarm-coloured)
+   *   * Skewness [B]          — raw bogie skewness from CSV (merged bogie blocks, teal/informational)
+   *   * Lateral Force Alarms  — Lat Force L/R · Gauge Spreading (per axle, alarm-coloured)
    *
-   * Measurement columns are vehicle/bogie-level merged blocks. Alarm columns are
-   * per-axle colour blocks. Skew values are the only calculated quantities (computed
-   * from side masses / bogie masses); all other values are extracted directly from
-   * the raw condition file. Dynamic load unit conversion (t → kN) is applied for
-   * alarm-limit comparison only.
+   * Skew loading values are calculated from mass left/right and bogie masses.
+   * Dynamic load kN is a unit conversion only. All other values are raw CSV.
    *
    * Hover tooltips carry exact values and severity on all blocks.
    */
@@ -274,14 +273,9 @@ const Visualiser = (() => {
 
     // ── Alarm column definitions ──────────────────────────────────────────────
     const VERT_DYN_COLS = [
-      { key: 'dynL', label: 'Dynamic\nLoad L', getAxleVal: a => a.dynamicLoadLeft_kN,  classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1) + ' kN', perVehicle: false },
-      { key: 'dynR', label: 'Dynamic\nLoad R', getAxleVal: a => a.dynamicLoadRight_kN, classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1) + ' kN', perVehicle: false },
+      { key: 'dynL', label: 'Left',  getAxleVal: a => a.dynamicLoadLeft_kN,  classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1) + ' kN', perVehicle: false },
+      { key: 'dynR', label: 'Right', getAxleVal: a => a.dynamicLoadRight_kN, classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1) + ' kN', perVehicle: false },
     ];
-    const VERT_SKEW_COLS = [
-      { key: 'ssSkew', label: 'Side-to-\nSide Skew', getVehicleVal: v => v.sideToSideSkew != null ? v.sideToSideSkew * 100 : null, classify: classifySkew, fmt: v => v.toFixed(1) + '%', perVehicle: true },
-      { key: 'eeSkew', label: 'End-to-\nEnd Skew',   getVehicleVal: v => v.endToEndSkew   != null ? v.endToEndSkew   * 100 : null, classify: classifySkew, fmt: v => v.toFixed(1) + '%', perVehicle: true },
-    ];
-    const VERT_COLS = [...VERT_DYN_COLS, ...VERT_SKEW_COLS];
     const LAT_COLS = [
       { key: 'latL',  label: 'Lateral\nForce L',  getAxleVal: a => a.lateralForceLeft_t,    classify: classifyLateral, fmt: v => v.toFixed(2) + ' t', perVehicle: false },
       { key: 'latR',  label: 'Lateral\nForce R',  getAxleVal: a => a.lateralForceRight_t,   classify: classifyLateral, fmt: v => v.toFixed(2) + ' t', perVehicle: false },
@@ -292,14 +286,14 @@ const Visualiser = (() => {
     const BW = 38, BH = 28, BG = 3, GG = 16;
     const VROT_W     = 18;
     const AXLE_W     = 46;
-    const INFO_W     = VROT_W + AXLE_W;                                    // 64
-    const BOGIE_W    = BW;                                                  // 38 — merged bogie column
-    const measGroupW = 4 * BW + 3 * BG;                                    // 161 — total mass · bogie · mass L · mass R
-    const dynW       = VERT_DYN_COLS.length  * (BW + BG) - BG;             // 79
-    const skewW      = VERT_SKEW_COLS.length * (BW + BG) - BG;             // 79
-    const vertW      = dynW + GG + skewW;                                   // 174
-    const latW       = LAT_COLS.length       * (BW + BG) - BG;             // 120
-    const totalW     = INFO_W + GG + measGroupW + GG + vertW + GG + latW;  // 571
+    const INFO_W     = VROT_W + AXLE_W;                                                             // 64
+    const BOGIE_W    = BW;                                                                           // 38 — merged bogie column
+    const measGroupW = 4 * BW + 3 * BG;                                                             // 161 — total mass · bogie · mass L · mass R
+    const dynW       = VERT_DYN_COLS.length * (BW + BG) - BG;                                       // 79 — dyn load L/R
+    const skewLoadW  = BW + GG + BW;                                                                 // 92 — S-S skew | sep | E-E skew (merged vehicle blocks)
+    const skewnessW  = 52;                                                                           // wider — Skewness bogie column
+    const latW       = LAT_COLS.length      * (BW + BG) - BG;                                       // 120
+    const totalW     = INFO_W + GG + measGroupW + GG + dynW + GG + skewLoadW + GG + skewnessW + GG + latW;  // 634
 
     function mkDivider() {
       const d = el('div',
@@ -350,13 +344,27 @@ const Visualiser = (() => {
       return wrap;
     }
 
+    function mkSingleColHdr(htmlContent, fg, bg, w) {
+      const width = w || BW;
+      const h = el('div',
+        `width:${width}px;flex-shrink:0;text-align:center;font-size:7.5px;font-weight:700;` +
+        `color:${fg};line-height:1.3;background:${bg};border-radius:2px 2px 0 0;padding:2px 1px 4px;`
+      );
+      h.innerHTML = htmlContent;
+      return h;
+    }
+
     // Row 1 — group labels
     const grpRow = el('div', `display:flex;align-items:flex-end;`);
     grpRow.appendChild(el('div', `width:${INFO_W}px;flex-shrink:0;`));
     grpRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
     grpRow.appendChild(mkGrpLabel(measGroupW, '▼ Measurements',          '#0e7490', '#cffafe', '#a5f3fc'));
     grpRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
-    grpRow.appendChild(mkGrpLabel(vertW,      '▲ Vertical Force Alarms', '#1e40af', '#dbeafe', '#bfdbfe'));
+    grpRow.appendChild(mkGrpLabel(dynW,       '▲ Dynamic Load',           '#1e40af', '#dbeafe', '#bfdbfe'));
+    grpRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
+    grpRow.appendChild(mkGrpLabel(skewLoadW,  '⇔ Skew Loading',          '#1e40af', '#dbeafe', '#bfdbfe'));
+    grpRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
+    grpRow.appendChild(mkGrpLabel(skewnessW,  '↻ Skewness',              '#0e7490', '#cffafe', '#a5f3fc'));
     grpRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
     grpRow.appendChild(mkGrpLabel(latW,       '← Lateral Force Alarms',  '#5b21b6', '#ede9fe', '#c4b5fd'));
     stickyHdr.appendChild(grpRow);
@@ -383,33 +391,36 @@ const Visualiser = (() => {
     }
     const sub = s => `<br><span style="font-size:6.5px;opacity:0.65;font-weight:400;">${s}</span>`;
     const measHdrWrap = el('div', `display:flex;gap:${BG}px;flex-shrink:0;`);
-    measHdrWrap.appendChild(mkMeasHdr(`Vehicle<br>Mass${sub('(t, total)')}`));
-    measHdrWrap.appendChild(mkMeasHdr(`Bogie<br>Load${sub('(t, merged)')}`));
-    measHdrWrap.appendChild(mkMeasHdr(`Mass<br>Left${sub('(t)')}`));
-    measHdrWrap.appendChild(mkMeasHdr(`Mass<br>Right${sub('(t)')}`));
+    measHdrWrap.appendChild(mkMeasHdr(`Vehicle<br>Mass`));
+    measHdrWrap.appendChild(mkMeasHdr(`Bogie<br>Load`));
+    measHdrWrap.appendChild(mkMeasHdr(`Mass<br>Left`));
+    measHdrWrap.appendChild(mkMeasHdr(`Mass<br>Right`));;
     colRow.appendChild(measHdrWrap);
     colRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
 
-    // Vertical alarms — dynamic load sub-group | separator | skew sub-group
-    colRow.appendChild(mkColHdrs(VERT_DYN_COLS,  '#1d4ed8', '#eff6ff', '#bfdbfe'));
-    const vertHdrSep = el('div', `width:${GG}px;flex-shrink:0;display:flex;align-items:center;justify-content:center;`);
-    vertHdrSep.appendChild(el('div', `width:1px;background:#bfdbfe;align-self:stretch;margin:2px 0;`));
-    colRow.appendChild(vertHdrSep);
-    colRow.appendChild(mkColHdrs(VERT_SKEW_COLS, '#1d4ed8', '#eff6ff', '#bfdbfe'));
-
+    // Vertical alarms — dynamic load columns only
+    colRow.appendChild(mkColHdrs(VERT_DYN_COLS, '#1d4ed8', '#eff6ff', '#bfdbfe'));
     colRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
-    colRow.appendChild(mkColHdrs(LAT_COLS,  '#6d28d9', '#f5f3ff', '#c4b5fd'));
+
+    // Skew Loading — S-S skew | thin-line separator | E-E skew (vehicle-height merged blocks)
+    colRow.appendChild(mkSingleColHdr(`Side-to-<br>Side`, '#1d4ed8', '#eff6ff'));
+    const skewHdrSep = el('div', `width:${GG}px;flex-shrink:0;display:flex;align-items:center;justify-content:center;`);
+    skewHdrSep.appendChild(el('div', `width:1px;background:#bfdbfe;align-self:stretch;margin:2px 0;`));
+    colRow.appendChild(skewHdrSep);
+    colRow.appendChild(mkSingleColHdr(`End-to-<br>End`, '#1d4ed8', '#eff6ff'));
+    colRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
+
+    // Skewness [B] — teal, bogie-height merged blocks
+    colRow.appendChild(mkSingleColHdr(`Skewness${sub('(bogie)')}`, '#0e7490', '#ecfeff', skewnessW));
+    colRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
+
+    colRow.appendChild(mkColHdrs(LAT_COLS, '#6d28d9', '#f5f3ff', '#c4b5fd'));
     stickyHdr.appendChild(colRow);
 
     inner.appendChild(stickyHdr);
 
     // ── Vehicle blocks ────────────────────────────────────
     vehicles.forEach(v => {
-      const vVals = {};
-      [...VERT_COLS, ...LAT_COLS].filter(c => c.perVehicle).forEach(c => {
-        vVals[c.key] = c.getVehicleVal(v);
-      });
-
       const vTotalH = v.axles.length * BH + (v.axles.length - 1) * BG;
       const vBlock  = el('div', `display:flex;margin-bottom:10px;`);
 
@@ -428,8 +439,9 @@ const Visualiser = (() => {
         `font-size:8px;font-weight:700;color:#475569;letter-spacing:0.03em;` +
         `white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`
       );
-      const vIdPart = v.vehicleId && v.vehicleId.trim() ? ` · ${v.vehicleId.trim()}` : '';
-      rotText.textContent = `V${v.vPos}${vIdPart}`;
+      const vIdPart  = v.vehicleId && v.vehicleId.trim() ? ` · ${v.vehicleId.trim()}` : '';
+      const vSpdPart = v.speed_kmh != null ? ` · ${v.speed_kmh.toFixed(0)} km/h` : '';
+      rotText.textContent = `V${v.vPos}${vIdPart}${vSpdPart}`;
       rotCol.appendChild(rotText);
       vBlock.appendChild(rotCol);
 
@@ -481,40 +493,63 @@ const Visualiser = (() => {
       vBlock.appendChild(buildVehicleMassCell(v.massRight_t, 'Right', v, vTotalH, BW));
       vBlock.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
 
-      // ── Axle data blocks ──────────────────────────────
-      const blocksArea = el('div', `display:flex;flex-direction:column;gap:${BG}px;`);
+      // ── Per-axle dynamic load blocks ──────────────────
+      const dynBlocksArea = el('div', `display:flex;flex-direction:column;gap:${BG}px;`);
       v.axles.forEach(axle => {
         const row = el('div', `display:flex;align-items:center;height:${BH}px;`);
-
-        // Vertical alarms — dynamic load sub-group
         const dynG = el('div', `display:flex;gap:${BG}px;`);
         VERT_DYN_COLS.forEach(col => {
           dynG.appendChild(buildAxleBlock(col.getAxleVal(axle), col, v, axle, BW, BH));
         });
         row.appendChild(dynG);
+        dynBlocksArea.appendChild(row);
+      });
+      vBlock.appendChild(dynBlocksArea);
 
-        row.appendChild(mkDivider());
+      vBlock.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
 
-        // Vertical alarms — skew sub-group
-        const skewG = el('div', `display:flex;gap:${BG}px;`);
-        VERT_SKEW_COLS.forEach(col => {
-          const val = col.perVehicle ? vVals[col.key] : col.getAxleVal(axle);
-          skewG.appendChild(buildAxleBlock(val, col, v, axle, BW, BH));
+      // ── Skew Loading — S-S and E-E vehicle-height merged cells ──
+      vBlock.appendChild(buildVehicleSkewCell(v.sideToSideSkew, 'S-S', v, vTotalH, BW));
+      const skewSep = el('div', `width:${GG}px;flex-shrink:0;display:flex;align-items:stretch;justify-content:center;`);
+      skewSep.appendChild(el('div', `width:1px;background:#bfdbfe;margin:4px 0;`));
+      vBlock.appendChild(skewSep);
+      vBlock.appendChild(buildVehicleSkewCell(v.endToEndSkew, 'E-E', v, vTotalH, BW));
+
+      vBlock.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
+
+      // ── Skewness [B] — bogie-height merged cells ───────────────
+      const skewnessColDiv = el('div', `width:${skewnessW}px;flex-shrink:0;display:flex;flex-direction:column;`);
+      if (bogieGroups.length > 0) {
+        bogieGroups.forEach((bg, i) => {
+          const n     = bg.endAxleIdx - bg.startAxleIdx + 1;
+          const cellH = n * BH + (n - 1) * BG;
+          const sk    = v.skewnessBogie.find(s => s.bogieNum === bg.bogieNum);
+          const skCell = buildSkewnessCell(sk ? sk.value : null, bg.bogieNum, v, cellH, skewnessW);
+          if (i < bogieGroups.length - 1) skCell.style.marginBottom = BG + 'px';
+          skewnessColDiv.appendChild(skCell);
         });
-        row.appendChild(skewG);
+      } else {
+        skewnessColDiv.appendChild(el('div',
+          `width:${skewnessW}px;height:${vTotalH}px;border-radius:4px;` +
+          `background:#f3f4f6;border:1px solid rgba(0,0,0,0.07);`
+        ));
+      }
+      vBlock.appendChild(skewnessColDiv);
 
-        row.appendChild(mkDivider());
+      vBlock.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
 
-        // Lateral alarm columns
+      // ── Per-axle lateral blocks ───────────────────────
+      const latBlocksArea = el('div', `display:flex;flex-direction:column;gap:${BG}px;`);
+      v.axles.forEach(axle => {
+        const row = el('div', `display:flex;align-items:center;height:${BH}px;`);
         const lg = el('div', `display:flex;gap:${BG}px;`);
         LAT_COLS.forEach(col => {
           lg.appendChild(buildAxleBlock(col.getAxleVal(axle), col, v, axle, BW, BH));
         });
         row.appendChild(lg);
-
-        blocksArea.appendChild(row);
+        latBlocksArea.appendChild(row);
       });
-      vBlock.appendChild(blocksArea);
+      vBlock.appendChild(latBlocksArea);
 
       inner.appendChild(vBlock);
     });
@@ -581,6 +616,62 @@ const Visualiser = (() => {
       cell.appendChild(valDiv);
       const tipLabel = label === 'Total' ? 'Vehicle Mass (Total)' : `Vehicle Mass (${label} side)`;
       attachTooltip(cell, `V${vehicle.vPos} · ${tipLabel}\n${mass_t.toFixed(2)} t`);
+    }
+    return cell;
+  }
+
+  // Vehicle-level skew cell — spans full vehicle height, alarm-coloured.
+  function buildVehicleSkewCell(skewFrac, label, vehicle, cellH, cellW) {
+    const pct  = skewFrac != null && !isNaN(skewFrac) ? skewFrac * 100 : null;
+    const sev  = pct != null ? classifySkew(pct) : null;
+    const bg   = sev != null ? CELL_BG[sev]   : CELL_BG.noData;
+    const fg   = sev != null ? CELL_TEXT[sev]  : '#9ca3af';
+    const cell = el('div',
+      `width:${cellW}px;height:${cellH}px;border-radius:4px;flex-shrink:0;` +
+      `background:${bg};border:1px solid rgba(0,0,0,0.07);` +
+      `display:flex;flex-direction:column;align-items:center;justify-content:center;` +
+      `font-size:7.5px;font-weight:700;color:${fg};line-height:1.4;overflow:hidden;`
+    );
+    if (sev && sev !== SEVERITY.NOMINAL) {
+      cell.style.boxShadow = `0 0 0 1.5px ${LEGEND_BG[sev]}90`;
+    }
+    if (cellH >= 40) {
+      const lbl = el('div', `font-size:6.5px;opacity:0.7;font-weight:400;`);
+      lbl.textContent = label;
+      cell.appendChild(lbl);
+    }
+    const tipLabel = label === 'S-S' ? 'Side-to-Side Skew' : 'End-to-End Skew';
+    if (pct != null) {
+      const valDiv = el('div', ``);
+      valDiv.textContent = pct.toFixed(1) + '%';
+      cell.appendChild(valDiv);
+      const sevPart = sev && sev !== SEVERITY.NOMINAL ? `\n⚠ Severity: ${sev}` : '';
+      attachTooltip(cell, `V${vehicle.vPos} · ${tipLabel}\n${pct.toFixed(2)}%${sevPart}`);
+    } else {
+      attachTooltip(cell, `V${vehicle.vPos} · ${tipLabel}: no data`);
+    }
+    return cell;
+  }
+
+  // Bogie-level skewness cell — teal, spans bogie axle rows in height.
+  function buildSkewnessCell(value, bogieNum, vehicle, cellH, cellW) {
+    const hasVal = value != null && !isNaN(value);
+    const cell   = el('div',
+      `width:${cellW}px;height:${cellH}px;border-radius:4px;flex-shrink:0;` +
+      `background:${hasVal ? '#ecfeff' : '#f3f4f6'};border:1px solid rgba(0,0,0,0.07);` +
+      `display:flex;flex-direction:column;align-items:center;justify-content:center;` +
+      `font-size:7.5px;font-weight:700;color:#0e7490;line-height:1.4;overflow:hidden;`
+    );
+    if (hasVal) {
+      if (cellH >= 40) {
+        const lbl = el('div', `font-size:6.5px;opacity:0.7;font-weight:400;`);
+        lbl.textContent = `B${bogieNum}`;
+        cell.appendChild(lbl);
+      }
+      const valDiv = el('div', ``);
+      valDiv.textContent = value.toFixed(2);
+      cell.appendChild(valDiv);
+      attachTooltip(cell, `V${vehicle.vPos} · Bogie ${bogieNum}\nSkewness: ${value.toFixed(3)} t`);
     }
     return cell;
   }

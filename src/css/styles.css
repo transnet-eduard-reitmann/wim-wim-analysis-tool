@@ -30,7 +30,7 @@
 /* Vertical heatmap scroll container — scrolls vertically on screen, flows freely for PDF */
 .heatmap-v-scroll {
   overflow-y: auto;
-  max-height: 560px;
+  max-height: 900px;
   border: 1px solid #e5e7eb;
   border-radius: 4px;
 }

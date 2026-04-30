@@ -163,11 +163,11 @@ const Parser = (() => {
     const massLeft  = val(get('Mass [V]', '', 'Left'));
     const massRight = val(get('Mass [V]', '', 'Right'));
 
-    // Skewness: BBD5249 reports as a decimal fraction (e.g. 0.12 = 12%)
+    // Skewness: BBD5249 reports in tonnes (e.g. 0.280 = 0.280 t)
     const skewnessRows = rows.filter(r => r[8] === 'Skewness [B]');
     const skewnessBogie = skewnessRows.map(r => ({
       bogieNum: parseInt(r[9], 10),
-      value:    parseFloat(r[11]),  // decimal fraction
+      value:    parseFloat(r[11]),  // tonnes
     }));
 
     // Side-to-side skew at vehicle level

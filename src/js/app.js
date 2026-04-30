@@ -173,25 +173,22 @@
 
   function renderConclusions() {
     const { stats } = analysisResult;
-    const el = document.getElementById('conclusions-list');
-    if (!el) return;
-
-    const items = [];
-
-    if (stats.totalWheels > 0) {
-      items.push(`Total wheels assessed: ${stats.totalWheels} across ${trainData.vehicles.length} vehicles.`);
-      items.push(`Exceedance rate: ${(stats.exceedanceRate * 100).toFixed(2)}% (${stats.exceedingWheels} wheels exceeding limits).`);
-    }
+    const reasonsList = document.getElementById('verdict-reasons');
+    if (!reasonsList) return;
 
     if (stats.type3Count > 0) {
-      items.push(`ACTION REQUIRED: ${stats.type3Count} Type 3 exceedance(s) detected — train must be stopped and inspected immediately.`);
+      const li = document.createElement('li');
+      li.innerHTML = `<strong>ACTION REQUIRED:</strong> ${stats.type3Count} Type 3 exceedance(s) detected — train must be stopped and inspected immediately.`;
+      reasonsList.appendChild(li);
     } else if (stats.type2Count > 0) {
-      items.push(`${stats.type2Count} Type 2 exceedance(s) detected — train should proceed to the next station for corrective action.`);
+      const li = document.createElement('li');
+      li.textContent = `${stats.type2Count} Type 2 exceedance(s) detected — train should proceed to the next station for corrective action.`;
+      reasonsList.appendChild(li);
     } else if (stats.type1Count > 0) {
-      items.push(`${stats.type1Count} Type 1 exceedance(s) detected — route train to maintenance depot at next opportunity.`);
+      const li = document.createElement('li');
+      li.textContent = `${stats.type1Count} Type 1 exceedance(s) detected — route train to maintenance depot at next opportunity.`;
+      reasonsList.appendChild(li);
     }
-
-    el.innerHTML = items.map(i => `<li>${i}</li>`).join('');
   }
 
   // ── PDF download ───────────────────────────────────────────────────────────
