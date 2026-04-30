@@ -1,0 +1,50 @@
+/* styles.css — Custom styles supplementing Tailwind CSS */
+
+/* Drag-and-drop active state */
+#drop-zone.drag-over {
+  border-color: #3b82f6;
+  background-color: rgba(59, 130, 246, 0.08);
+}
+
+/* Ensure heatmap cells don't shrink */
+#heatmap-container {
+  min-height: 60px;
+}
+
+/* Smooth scrolling for long trains */
+#heatmap-container .overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #334155 #0f172a;
+}
+
+#heatmap-container .overflow-x-auto::-webkit-scrollbar {
+  height: 6px;
+}
+
+#heatmap-container .overflow-x-auto::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+#heatmap-container .overflow-x-auto::-webkit-scrollbar-thumb {
+  background-color: #334155;
+  border-radius: 3px;
+}
+
+/* PDF print overrides — keep dark background in PDF */
+@media print {
+  body { background: #0f172a !important; color: #f1f5f9 !important; }
+  .bg-slate-900 { background: #0f172a !important; }
+  .bg-slate-800 { background: #1e293b !important; }
+}
+
+/* Ensure code elements inherit font */
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85em;
+}
+
+/* Chart canvas sizing */
+canvas {
+  max-width: 100%;
+}

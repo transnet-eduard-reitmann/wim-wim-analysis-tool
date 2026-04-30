@@ -1,0 +1,24 @@
+# Real train data — never commit (may contain operational data)
+data/EMR.*/
+data/SLK.*/
+data/SNR.*/
+data/VHX.*/
+# Keep only anonymised samples
+!data/samples/
+
+# Claude Code workspace config
+.claude/
+
+# OS artefacts
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+*.swp
+*.swo
+
+# Initial prompt (planning artefact)
+initial_prompt.md
+initial_prompt.txt

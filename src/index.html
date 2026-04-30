@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en" class="bg-slate-900 text-slate-100">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WIM-WIM Analysis Tool</title>
+
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Chart.js + annotation plugin -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+
+  <!-- html2pdf.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body class="min-h-screen bg-slate-900 font-sans">
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header class="bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between">
+    <div>
+      <h1 class="text-lg font-bold text-white tracking-wide">WIM-WIM Analysis Tool</h1>
+      <p class="text-xs text-slate-400 mt-0.5">ITCMS Condition Data Processor · BBD5249 v3.1</p>
+    </div>
+    <div class="text-xs text-slate-500">Transnet Technology Management</div>
+  </header>
+
+  <!-- ── Upload Section ──────────────────────────────────────────────────── -->
+  <main class="max-w-7xl mx-auto px-4 py-6 space-y-6">
+
+    <section class="bg-slate-800 rounded-xl border border-slate-700 p-6">
+      <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">Load Data File</h2>
+
+      <!-- Drop Zone -->
+      <div
+        id="drop-zone"
+        class="border-2 border-dashed border-slate-600 rounded-lg p-10 text-center cursor-pointer transition-colors hover:border-blue-500 hover:bg-slate-700/30"
+        onclick="document.getElementById('file-input').click()"
+      >
+        <svg class="mx-auto mb-3 w-10 h-10 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+        </svg>
+        <p class="text-slate-300 font-medium">Drag &amp; drop a condition CSV file here</p>
+        <p class="text-slate-500 text-sm mt-1">or click to browse — select a <code class="text-slate-400">-cond.csv</code> file exported from the ITCMS query interface</p>
+        <input id="file-input" type="file" accept=".csv" class="hidden" />
+      </div>
+
+      <!-- Rail type selector -->
+      <div class="mt-4 flex items-center gap-4 flex-wrap">
+        <label class="text-sm text-slate-300 font-medium" for="rail-type-select">Rail type at measurement site:</label>
+        <select
+          id="rail-type-select"
+          class="bg-slate-700 border border-slate-600 text-slate-200 text-sm rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        >
+          <option value="sLine">S-line (60 kg/m) — max 30 t axle load</option>
+          <option value="n1Line">N1-line (57 kg/m) — max 22 t axle load</option>
+        </select>
+        <span class="text-xs text-slate-500">Determines wheel impact alarm thresholds (BBD5249 §3.2)</span>
+      </div>
+
+      <!-- Status message -->
+      <p id="status-message" class="hidden mt-3 text-sm"></p>
+    </section>
+
+    <!-- ── Report Section (hidden until file loaded) ──────────────────────── -->
+    <section id="report-section" class="hidden space-y-6">
+
+      <!-- Download button -->
+      <div class="flex justify-end">
+        <button
+          id="download-btn"
+          class="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+          </svg>
+          Download PDF Report
+        </button>
+      </div>
+
+      <!-- 1. Report Header / Metadata -->
+      <div class="bg-slate-800 rounded-xl border border-slate-700 p-5">
+        <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">Train Passage Details</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div><span class="text-slate-500 block text-xs">Measurement System</span><span id="meta-component" class="text-slate-200 font-mono text-xs">—</span></div>
+          <div><span class="text-slate-500 block text-xs">Train ID</span><span id="meta-train" class="text-slate-200 font-semibold">—</span></div>
+          <div><span class="text-slate-500 block text-xs">Date &amp; Time</span><span id="meta-time" class="text-slate-200">—</span></div>
+          <div><span class="text-slate-500 block text-xs">Direction</span><span id="meta-direction" class="text-slate-200">—</span></div>
+          <div><span class="text-slate-500 block text-xs">Rail Type</span><span id="meta-rail-type" class="text-slate-200">—</span></div>
+          <div><span class="text-slate-500 block text-xs">Consist</span><span id="meta-vehicles" class="text-slate-200">—</span></div>
+          <div><span class="text-slate-500 block text-xs">Total Axles</span><span id="meta-axles" class="text-slate-200">—</span></div>
+          <div><span class="text-slate-500 block text-xs">Total Mass</span><span id="meta-total-mass" class="text-slate-200">—</span></div>
+        </div>
+      </div>
+
+      <!-- 2. Executive Summary / Verdict -->
+      <div>
+        <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">Executive Summary</h2>
+        <div id="verdict-banner" class="rounded-xl p-5 border-2 bg-slate-800 border-slate-600">
+          <div class="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <div id="verdict-text" class="text-2xl font-bold tracking-wide">—</div>
+              <div id="verdict-confidence" class="text-sm mt-1 opacity-75"></div>
+            </div>
+          </div>
+          <ul id="verdict-reasons" class="mt-4 space-y-1.5 text-sm list-disc list-inside opacity-90"></ul>
+        </div>
+      </div>
+
+      <!-- 3. System Diagnostics -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        <!-- Channel health summary cards -->
+        <div class="bg-slate-800 rounded-xl border border-slate-700 p-5">
+          <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">System Diagnostics — Bridge Channel Health</h2>
+          <div class="grid grid-cols-4 gap-3 mb-5">
+            <div class="bg-slate-700/50 rounded-lg p-3 text-center">
+              <div id="ch-total" class="text-2xl font-bold text-slate-200">—</div>
+              <div class="text-xs text-slate-400 mt-1">Channels</div>
+            </div>
+            <div class="bg-green-900/30 rounded-lg p-3 text-center border border-green-800/50">
+              <div id="ch-healthy" class="text-2xl font-bold text-green-400">—</div>
+              <div class="text-xs text-slate-400 mt-1">Healthy</div>
+            </div>
+            <div class="bg-amber-900/30 rounded-lg p-3 text-center border border-amber-800/50">
+              <div id="ch-warning" class="text-2xl font-bold text-amber-400">—</div>
+              <div class="text-xs text-slate-400 mt-1">Warning</div>
+            </div>
+            <div class="bg-red-900/30 rounded-lg p-3 text-center border border-red-800/50">
+              <div id="ch-fault" class="text-2xl font-bold text-red-400">—</div>
+              <div class="text-xs text-slate-400 mt-1">Fault</div>
+            </div>
+          </div>
+
+          <!-- Channel offset chart -->
+          <div style="height: 200px;">
+            <canvas id="channel-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Channel table -->
+        <div class="bg-slate-800 rounded-xl border border-slate-700 p-5 overflow-auto max-h-80">
+          <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">Channel Offset Values</h2>
+          <table class="text-xs w-full">
+            <thead>
+              <tr class="border-b border-slate-600 text-slate-400 text-left">
+                <th class="py-1 px-2 font-medium">Channel</th>
+                <th class="py-1 px-2 font-medium">Offset</th>
+                <th class="py-1 px-2 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody id="channel-table-body"></tbody>
+          </table>
+          <p class="text-xs text-slate-500 mt-2">Warning ≥ ±0.5 t &nbsp;·&nbsp; Fault ≥ ±2.0 t</p>
+        </div>
+      </div>
+
+      <!-- 4. Train Heatmap -->
+      <div class="bg-slate-800 rounded-xl border border-slate-700 p-5">
+        <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Train Overview — Wheel Severity Heatmap</h2>
+        <p class="text-xs text-slate-500 mb-4">Each cell = one wheel measurement. Scroll horizontally for long trains. Hover for values.</p>
+        <div id="heatmap-container"></div>
+      </div>
+
+      <!-- 5. Exceedance Summary Charts -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        <!-- Donut chart -->
+        <div class="bg-slate-800 rounded-xl border border-slate-700 p-5">
+          <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">Wheel Severity Distribution</h2>
+          <div style="height: 220px;">
+            <canvas id="donut-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Vehicle summary table -->
+        <div class="bg-slate-800 rounded-xl border border-slate-700 p-5 overflow-auto max-h-72">
+          <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">Vehicle Summary</h2>
+          <table class="text-xs w-full">
+            <thead>
+              <tr class="border-b border-slate-600 text-slate-400 text-left">
+                <th class="py-1 px-2 font-medium">V#</th>
+                <th class="py-1 px-2 font-medium">Tag</th>
+                <th class="py-1 px-2 font-medium">Mass</th>
+                <th class="py-1 px-2 font-medium">Side Skew</th>
+                <th class="py-1 px-2 font-medium">Exceed.</th>
+                <th class="py-1 px-2 font-medium">Worst</th>
+              </tr>
+            </thead>
+            <tbody id="vehicle-summary-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 6. Detailed Exceedance Table -->
+      <div class="bg-slate-800 rounded-xl border border-slate-700 p-5">
+        <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">Detailed Exceedances (sorted by severity)</h2>
+        <div class="overflow-x-auto">
+          <table class="text-xs w-full min-w-max">
+            <thead>
+              <tr class="border-b border-slate-600 text-slate-400 text-left">
+                <th class="py-1 px-2 font-medium">Vehicle</th>
+                <th class="py-1 px-2 font-medium">Axle</th>
+                <th class="py-1 px-2 font-medium">Side</th>
+                <th class="py-1 px-2 font-medium">Parameter</th>
+                <th class="py-1 px-2 font-medium">Value</th>
+                <th class="py-1 px-2 font-medium">Limit</th>
+                <th class="py-1 px-2 font-medium">Severity</th>
+              </tr>
+            </thead>
+            <tbody id="exceedance-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 7. Conclusions and Recommendations -->
+      <div class="bg-slate-800 rounded-xl border border-slate-700 p-5">
+        <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">Conclusions &amp; Recommendations</h2>
+        <ul id="conclusions-list" class="text-sm text-slate-300 space-y-2 list-disc list-inside"></ul>
+        <p class="text-xs text-slate-500 mt-4">
+          Analysis based on BBD5249 v3.1 alarm limits. This tool is a decision-support aid — all assessments must be reviewed by a qualified technician before action is taken.
+        </p>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- ── Scripts (order matters — config first, then modules, then app) ───── -->
+  <script src="../config/alarm-limits.js"></script>
+  <script src="js/parser.js"></script>
+  <script src="js/analyser.js"></script>
+  <script src="js/visualiser.js"></script>
+  <script src="js/pdf-export.js"></script>
+  <script src="js/app.js"></script>
+
+</body>
+</html>
