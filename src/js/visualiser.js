@@ -269,42 +269,47 @@ const Visualiser = (() => {
 
     // ── Measurement columns (informational, no alarm colour) ─────────────────
     const MEAS_COLS = [
-      { key: 'vertL',    label: 'Vert\nLoad L', unit: 't',
+      { key: 'vertL',    label: 'Vertical\nLoad L', unit: 't',
         getAxleVal: a => a.dynamicLoadLeft_t,
         fmt: v => v.toFixed(1) },
-      { key: 'vertR',    label: 'Vert\nLoad R', unit: 't',
+      { key: 'vertR',    label: 'Vertical\nLoad R', unit: 't',
         getAxleVal: a => a.dynamicLoadRight_t,
         fmt: v => v.toFixed(1) },
-      { key: 'axleLoad', label: 'Axle\nLoad',   unit: 't',
+      { key: 'axleLoad', label: 'Axle\nLoad',       unit: 't',
         getAxleVal: a => (a.dynamicLoadLeft_t != null && a.dynamicLoadRight_t != null)
                          ? a.dynamicLoadLeft_t + a.dynamicLoadRight_t : null,
         fmt: v => v.toFixed(1) },
     ];
 
     // ── Alarm column definitions ──────────────────────────────────────────────
-    const VERT_COLS = [
-      { key: 'dynL',   label: 'Dyn\nLoad L',  getAxleVal: a => a.dynamicLoadLeft_kN,                                        classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1) + ' kN', perVehicle: false },
-      { key: 'dynR',   label: 'Dyn\nLoad R',  getAxleVal: a => a.dynamicLoadRight_kN,                                       classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1) + ' kN', perVehicle: false },
-      { key: 'ssSkew', label: 'S-S\nSkew',    getVehicleVal: v => v.sideToSideSkew != null ? v.sideToSideSkew * 100 : null, classify: classifySkew, fmt: v => v.toFixed(1) + '%',  perVehicle: true },
-      { key: 'eeSkew', label: 'E-E\nSkew',    getVehicleVal: v => v.endToEndSkew   != null ? v.endToEndSkew   * 100 : null, classify: classifySkew, fmt: v => v.toFixed(1) + '%',  perVehicle: true },
+    const VERT_DYN_COLS = [
+      { key: 'dynL', label: 'Dynamic\nLoad L', getAxleVal: a => a.dynamicLoadLeft_kN,  classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1) + ' kN', perVehicle: false },
+      { key: 'dynR', label: 'Dynamic\nLoad R', getAxleVal: a => a.dynamicLoadRight_kN, classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1) + ' kN', perVehicle: false },
     ];
+    const VERT_SKEW_COLS = [
+      { key: 'ssSkew', label: 'Side-to-\nSide Skew', getVehicleVal: v => v.sideToSideSkew != null ? v.sideToSideSkew * 100 : null, classify: classifySkew, fmt: v => v.toFixed(1) + '%', perVehicle: true },
+      { key: 'eeSkew', label: 'End-to-\nEnd Skew',   getVehicleVal: v => v.endToEndSkew   != null ? v.endToEndSkew   * 100 : null, classify: classifySkew, fmt: v => v.toFixed(1) + '%', perVehicle: true },
+    ];
+    const VERT_COLS = [...VERT_DYN_COLS, ...VERT_SKEW_COLS];
     const LAT_COLS = [
-      { key: 'latL',  label: 'Lat\nForce L',  getAxleVal: a => a.lateralForceLeft_t,    classify: classifyLateral, fmt: v => v.toFixed(2) + ' t', perVehicle: false },
-      { key: 'latR',  label: 'Lat\nForce R',  getAxleVal: a => a.lateralForceRight_t,   classify: classifyLateral, fmt: v => v.toFixed(2) + ' t', perVehicle: false },
-      { key: 'gauge', label: 'Gauge\nSpread', getAxleVal: a => a.gaugeSpreadingForce_t, classify: classifyGauge,   fmt: v => v.toFixed(2) + ' t', perVehicle: false },
+      { key: 'latL',  label: 'Lateral\nForce L',  getAxleVal: a => a.lateralForceLeft_t,    classify: classifyLateral, fmt: v => v.toFixed(2) + ' t', perVehicle: false },
+      { key: 'latR',  label: 'Lateral\nForce R',  getAxleVal: a => a.lateralForceRight_t,   classify: classifyLateral, fmt: v => v.toFixed(2) + ' t', perVehicle: false },
+      { key: 'gauge', label: 'Gauge\nSpreading',  getAxleVal: a => a.gaugeSpreadingForce_t, classify: classifyGauge,   fmt: v => v.toFixed(2) + ' t', perVehicle: false },
     ];
 
     // Layout constants (px)
-    const BW = 28, BH = 28, BG = 3, GG = 16;
+    const BW = 38, BH = 28, BG = 3, GG = 16;
     const VROT_W     = 18;
     const AXLE_W     = 46;
-    const INFO_W     = VROT_W + AXLE_W;                       // 64
-    const BOGIE_W    = BW;                                     // 28 — merged bogie column
-    const measColsW  = MEAS_COLS.length * (BW + BG) - BG;     // 90
-    const measGroupW = BOGIE_W + BG + measColsW;               // 121
-    const vertW      = VERT_COLS.length * (BW + BG) - BG;     // 121
-    const latW       = LAT_COLS.length  * (BW + BG) - BG;     // 90
-    const totalW     = INFO_W + GG + measGroupW + GG + vertW + GG + latW; // 444
+    const INFO_W     = VROT_W + AXLE_W;                                    // 64
+    const BOGIE_W    = BW;                                                  // 38 — merged bogie column
+    const measColsW  = MEAS_COLS.length      * (BW + BG) - BG;             // 120
+    const measGroupW = BOGIE_W + BG + measColsW;                            // 161
+    const dynW       = VERT_DYN_COLS.length  * (BW + BG) - BG;             // 79
+    const skewW      = VERT_SKEW_COLS.length * (BW + BG) - BG;             // 79
+    const vertW      = dynW + GG + skewW;                                   // 174
+    const latW       = LAT_COLS.length       * (BW + BG) - BG;             // 120
+    const totalW     = INFO_W + GG + measGroupW + GG + vertW + GG + latW;  // 571
 
     function mkDivider() {
       const d = el('div',
@@ -337,13 +342,11 @@ const Visualiser = (() => {
     }
 
     function mkColHdrs(cols, fg, bg, bdr, unitNote) {
-      const wrap = el('div',
-        `display:flex;gap:${BG}px;flex-shrink:0;background:${bg};` +
-        `border-left:1px solid ${bdr};border-right:1px solid ${bdr};padding:2px ${BG}px 4px;`
-      );
+      const wrap = el('div', `display:flex;gap:${BG}px;flex-shrink:0;`);
       cols.forEach(col => {
         const h = el('div',
-          `width:${BW}px;flex-shrink:0;text-align:center;font-size:7.5px;font-weight:700;color:${fg};line-height:1.3;`
+          `width:${BW}px;flex-shrink:0;text-align:center;font-size:7.5px;font-weight:700;` +
+          `color:${fg};line-height:1.3;background:${bg};border-radius:2px 2px 0 0;padding:2px 1px 4px;`
         );
         let note = '';
         if (col.perVehicle) {
@@ -382,16 +385,22 @@ const Visualiser = (() => {
     // Bogie column header (within Measurements group)
     const bogieHdrEl = el('div',
       `width:${BOGIE_W}px;flex-shrink:0;text-align:center;font-size:7.5px;font-weight:700;` +
-      `color:#0e7490;line-height:1.3;background:#ecfeff;` +
-      `border-left:1px solid #a5f3fc;padding:2px 1px 4px;`
+      `color:#0e7490;line-height:1.3;background:#ecfeff;border-radius:2px 2px 0 0;padding:2px 1px 4px;`
     );
     bogieHdrEl.innerHTML = 'Bogie<br>Load<br><span style="font-size:6.5px;opacity:0.65;font-weight:400;">(t, merged)</span>';
     colRow.appendChild(bogieHdrEl);
-    colRow.appendChild(el('div', `width:${BG}px;flex-shrink:0;background:#ecfeff;`));
+    colRow.appendChild(el('div', `width:${BG}px;flex-shrink:0;`));
 
     colRow.appendChild(mkColHdrs(MEAS_COLS, '#0e7490', '#ecfeff', '#a5f3fc', 't'));
     colRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
-    colRow.appendChild(mkColHdrs(VERT_COLS, '#1d4ed8', '#eff6ff', '#bfdbfe'));
+
+    // Vertical alarms — dynamic load sub-group | separator | skew sub-group
+    colRow.appendChild(mkColHdrs(VERT_DYN_COLS,  '#1d4ed8', '#eff6ff', '#bfdbfe'));
+    const vertHdrSep = el('div', `width:${GG}px;flex-shrink:0;display:flex;align-items:center;justify-content:center;`);
+    vertHdrSep.appendChild(el('div', `width:1px;background:#bfdbfe;align-self:stretch;margin:2px 0;`));
+    colRow.appendChild(vertHdrSep);
+    colRow.appendChild(mkColHdrs(VERT_SKEW_COLS, '#1d4ed8', '#eff6ff', '#bfdbfe'));
+
     colRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
     colRow.appendChild(mkColHdrs(LAT_COLS,  '#6d28d9', '#f5f3ff', '#c4b5fd'));
     stickyHdr.appendChild(colRow);
@@ -481,13 +490,22 @@ const Visualiser = (() => {
 
         row.appendChild(mkDivider());
 
-        // Vertical alarm columns
-        const vg = el('div', `display:flex;gap:${BG}px;`);
-        VERT_COLS.forEach(col => {
-          const val = col.perVehicle ? vVals[col.key] : col.getAxleVal(axle);
-          vg.appendChild(buildAxleBlock(val, col, v, axle, BW, BH));
+        // Vertical alarms — dynamic load sub-group
+        const dynG = el('div', `display:flex;gap:${BG}px;`);
+        VERT_DYN_COLS.forEach(col => {
+          dynG.appendChild(buildAxleBlock(col.getAxleVal(axle), col, v, axle, BW, BH));
         });
-        row.appendChild(vg);
+        row.appendChild(dynG);
+
+        row.appendChild(mkDivider());
+
+        // Vertical alarms — skew sub-group
+        const skewG = el('div', `display:flex;gap:${BG}px;`);
+        VERT_SKEW_COLS.forEach(col => {
+          const val = col.perVehicle ? vVals[col.key] : col.getAxleVal(axle);
+          skewG.appendChild(buildAxleBlock(val, col, v, axle, BW, BH));
+        });
+        row.appendChild(skewG);
 
         row.appendChild(mkDivider());
 

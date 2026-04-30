@@ -77,6 +77,11 @@
     break-after: page;
   }
 
+  /* Force a page break before the marked section */
+  .print-break-before {
+    break-before: page;
+  }
+
   body {
     background: #ffffff !important;
     color: #111827 !important;
