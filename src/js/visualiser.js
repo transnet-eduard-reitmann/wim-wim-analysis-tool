@@ -126,16 +126,35 @@ const Visualiser = (() => {
 
     const leftVert  = range(1, 13).map(pad2);
     const rightVert = range(14, 26).map(pad2);
-    const extra     = range(29, 32).map(pad2).filter(ch => byChannel[ch]);
+    const proxChs   = ['29', '30'].filter(ch => byChannel[ch]);
+    const trigChs   = ['31', '32'].filter(ch => byChannel[ch]);
 
     const layout = el('div', 'display:flex;flex-direction:column;gap:6px;');
     layout.appendChild(buildRailRow('Left rail',  leftVert,  ['27'], byChannel));
     layout.appendChild(buildTrackBar());
     layout.appendChild(buildRailRow('Right rail', rightVert, ['28'], byChannel));
-    if (extra.length > 0) {
-      const r = buildRailRow('Other', extra, [], byChannel);
-      r.style.marginTop = '4px';
-      layout.appendChild(r);
+
+    // Other channels (proximity + triggers) combined into one row
+    if (proxChs.length > 0 || trigChs.length > 0) {
+      const otherRow = el('div', 'display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:4px;');
+      const rowLbl = el('div', 'font-size:11px;color:#6b7280;width:72px;flex-shrink:0;font-weight:500;');
+      rowLbl.textContent = 'Other';
+      otherRow.appendChild(rowLbl);
+      let firstSection = true;
+      const addSection = (subLabel, chs) => {
+        if (chs.length === 0) return;
+        if (!firstSection) {
+          otherRow.appendChild(el('div', 'width:1px;background:#d1d5db;margin:0 6px;align-self:stretch;'));
+        }
+        const sl = el('div', 'font-size:10px;color:#9ca3af;flex-shrink:0;align-self:center;margin-right:4px;');
+        sl.textContent = subLabel + ':';
+        otherRow.appendChild(sl);
+        chs.forEach(ch => otherRow.appendChild(buildChannelCell(ch, byChannel[ch])));
+        firstSection = false;
+      };
+      addSection('Proximity', proxChs);
+      addSection('Triggers', trigChs);
+      layout.appendChild(otherRow);
     }
 
     // Legend
@@ -160,6 +179,11 @@ const Visualiser = (() => {
     lbl.textContent = labelText;
     row.appendChild(lbl);
 
+    // "Vertical:" sub-label
+    const vertLbl = el('div', 'font-size:10px;color:#9ca3af;flex-shrink:0;align-self:center;margin-right:4px;');
+    vertLbl.textContent = 'Vertical:';
+    row.appendChild(vertLbl);
+
     const cells = el('div', 'display:flex;gap:2px;flex-wrap:nowrap;');
     vertChs.forEach(ch => cells.appendChild(buildChannelCell(ch, byChannel[ch])));
     row.appendChild(cells);
@@ -177,6 +201,17 @@ const Visualiser = (() => {
     return row;
   }
 
+  function channelDescription(ch) {
+    const n = parseInt(ch, 10);
+    if (n >= 1  && n <= 13) return 'Left rail — vertical sensor';
+    if (n >= 14 && n <= 26) return 'Right rail — vertical sensor';
+    if (n === 27) return 'Left rail — lateral force sensor';
+    if (n === 28) return 'Right rail — lateral force sensor';
+    if (n === 29 || n === 30) return 'Proximity sensor (speed / direction / vehicle recognition)';
+    if (n === 31 || n === 32) return 'Trigger input (data acquisition start/stop)';
+    return '';
+  }
+
   function buildChannelCell(ch, data) {
     const cell = el('div',
       'width:28px;height:28px;border-radius:3px;display:flex;align-items:center;' +
@@ -188,9 +223,10 @@ const Visualiser = (() => {
     cell.style.color = CH_TEXT[status] || '#9ca3af';
     cell.textContent = parseInt(ch, 10);
 
+    const desc = channelDescription(ch);
     const tipText = data
-      ? `Channel ${ch}\nOffset: ${data.value.toFixed(3)} t\nStatus: ${status.toUpperCase()}`
-      : `Channel ${ch}: no data`;
+      ? `Channel ${ch}${desc ? '\n' + desc : ''}\nOffset: ${data.value.toFixed(3)} t\nStatus: ${status.toUpperCase()}`
+      : `Channel ${ch}${desc ? '\n' + desc : ''}\nNo data`;
     attachTooltip(cell, tipText);
     return cell;
   }
@@ -205,15 +241,14 @@ const Visualiser = (() => {
   // ── Vertical Multi-Parameter Train Heatmap ────────────────────────────────
 
   /**
-   * Renders a vertical CSS-grid heatmap where each row is one axle and each
-   * column is one measurement parameter. This layout flows naturally onto
-   * subsequent PDF pages for long trains.
+   * Renders a block-grid heatmap where each row is one axle. Parameters are
+   * split into two visually distinct column groups:
+   *   • Vertical Force Parameters — Dyn Load L/R · S-S Skew · E-E Skew
+   *   • Lateral Force Parameters  — Lat Force L/R · Gauge Spreading
    *
-   * Columns: Dyn Load L/R · Lateral Force L/R · Gauge Spreading · S-S Skew · E-E Skew
-   *
-   * Only non-nominal (exceedance) cells show their numeric value as text;
-   * nominal cells show only the green background. Hover shows exact values
-   * for all cells via a custom floating tooltip.
+   * Blocks carry no text — hover tooltips show exact values and severity.
+   * Each vehicle block has a rotated sidebar showing vehicle number, ID and
+   * mass alongside a column of axle labels.
    */
   function renderMultiParamHeatmap(trainData, analysisResult, railType, containerId) {
     const container = document.getElementById(containerId);
@@ -228,124 +263,213 @@ const Visualiser = (() => {
 
     const impactLimits = ALARM_LIMITS.wheelImpact[railType];
 
-    // Column definitions: { label (2-line), getAxleVal|getVehicleVal, classify, fmt, perVehicle }
-    const COLS = [
-      { label: 'Dyn Load\nLeft (kN)',  getAxleVal: a => a.dynamicLoadLeft_kN,   classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1), perVehicle: false },
-      { label: 'Dyn Load\nRight (kN)', getAxleVal: a => a.dynamicLoadRight_kN,  classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1), perVehicle: false },
-      { label: 'Lat Force\nLeft (t)',  getAxleVal: a => a.lateralForceLeft_t,   classify: classifyLateral,                      fmt: v => v.toFixed(2), perVehicle: false },
-      { label: 'Lat Force\nRight (t)', getAxleVal: a => a.lateralForceRight_t,  classify: classifyLateral,                      fmt: v => v.toFixed(2), perVehicle: false },
-      { label: 'Gauge\nSpread (t)',    getAxleVal: a => a.gaugeSpreadingForce_t, classify: classifyGauge,                        fmt: v => v.toFixed(2), perVehicle: false },
-      { label: 'Side-Side\nSkew (%)',  getVehicleVal: v => v.sideToSideSkew != null ? v.sideToSideSkew * 100 : null, classify: classifySkew, fmt: v => v.toFixed(1) + '%', perVehicle: true },
-      { label: 'End-End\nSkew (%)',    getVehicleVal: v => v.endToEndSkew   != null ? v.endToEndSkew   * 100 : null, classify: classifySkew, fmt: v => v.toFixed(1) + '%', perVehicle: true },
+    // ── Column group definitions ──────────────────────────
+    const VERT_COLS = [
+      { key: 'dynL',   label: 'Dyn\nLoad L',  getAxleVal: a => a.dynamicLoadLeft_kN,                                        classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1) + ' kN', perVehicle: false },
+      { key: 'dynR',   label: 'Dyn\nLoad R',  getAxleVal: a => a.dynamicLoadRight_kN,                                       classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1) + ' kN', perVehicle: false },
+      { key: 'ssSkew', label: 'S-S\nSkew',    getVehicleVal: v => v.sideToSideSkew != null ? v.sideToSideSkew * 100 : null, classify: classifySkew, fmt: v => v.toFixed(1) + '%',  perVehicle: true },
+      { key: 'eeSkew', label: 'E-E\nSkew',    getVehicleVal: v => v.endToEndSkew   != null ? v.endToEndSkew   * 100 : null, classify: classifySkew, fmt: v => v.toFixed(1) + '%',  perVehicle: true },
+    ];
+    const LAT_COLS = [
+      { key: 'latL',  label: 'Lat\nForce L',  getAxleVal: a => a.lateralForceLeft_t,    classify: classifyLateral, fmt: v => v.toFixed(2) + ' t', perVehicle: false },
+      { key: 'latR',  label: 'Lat\nForce R',  getAxleVal: a => a.lateralForceRight_t,   classify: classifyLateral, fmt: v => v.toFixed(2) + ' t', perVehicle: false },
+      { key: 'gauge', label: 'Gauge\nSpread', getAxleVal: a => a.gaugeSpreadingForce_t, classify: classifyGauge,   fmt: v => v.toFixed(2) + ' t', perVehicle: false },
     ];
 
-    const LABEL_W = 65;   // px — "A12" label column
-    const COL_W   = 56;   // px — each parameter column
-    const ROW_H   = 13;   // px — axle data row height
-    const VEH_H   = 20;   // px — vehicle separator row height
-    const TOTAL_W = LABEL_W + COLS.length * COL_W;
+    // Layout constants (px)
+    const BW = 28, BH = 28, BG = 3, GG = 16;
+    const VROT_W = 18;                      // rotated vehicle-info strip width
+    const AXLE_W = 46;                      // axle-number column width
+    const INFO_W = VROT_W + AXLE_W;        // = 64 — left sidebar total
+    const vertW  = VERT_COLS.length * (BW + BG) - BG;   // 4×31 − 3 = 121
+    const latW   = LAT_COLS.length  * (BW + BG) - BG;   // 3×31 − 3 = 90
+    const totalW = INFO_W + GG + vertW + GG + latW;      // = 307
 
-    // ── Grid container ─────────────────────────────────
-    const grid = document.createElement('div');
-    grid.style.cssText =
-      `display:grid;` +
-      `grid-template-columns:${LABEL_W}px repeat(${COLS.length},${COL_W}px);` +
-      `width:${TOTAL_W}px;border-left:1px solid #e5e7eb;border-top:1px solid #e5e7eb;`;
-
-    // ── Sticky header row ──────────────────────────────
-    // Label/axle header cell
-    const axleHdr = el('div',
-      'position:sticky;top:0;z-index:5;background:#f9fafb;border-right:1px solid #e5e7eb;' +
-      'border-bottom:2px solid #d1d5db;padding:4px 4px 4px 6px;font-size:9px;' +
-      'font-weight:600;color:#6b7280;display:flex;align-items:flex-end;'
-    );
-    axleHdr.textContent = 'V / Axle';
-    grid.appendChild(axleHdr);
-
-    COLS.forEach(col => {
-      const hdr = el('div',
-        'position:sticky;top:0;z-index:5;background:#f9fafb;border-right:1px solid #e5e7eb;' +
-        'border-bottom:2px solid #d1d5db;padding:4px 2px;font-size:9px;font-weight:600;' +
-        'color:#6b7280;text-align:center;line-height:1.3;'
+    // Shared group-divider factory (used inside axle rows in blocksArea)
+    function mkDivider() {
+      const d = el('div',
+        `width:${GG}px;flex-shrink:0;display:flex;align-items:center;justify-content:center;`
       );
-      hdr.innerHTML = col.label.replace('\n', '<br>');
-      grid.appendChild(hdr);
-    });
+      d.appendChild(el('div', `width:1px;height:${BH - 6}px;background:#e5e7eb;border-radius:1px;`));
+      return d;
+    }
 
-    // ── Data rows — one vehicle block at a time ────────
-    vehicles.forEach(v => {
-      // Pre-compute vehicle-level values
-      const vVals = {};
-      COLS.filter(c => c.perVehicle).forEach(c => {
-        vVals[c.label] = c.getVehicleVal(v);
-      });
-
-      // Vehicle separator row (spans all columns)
-      const vHdr = el('div',
-        `grid-column:1/-1;background:#f3f4f6;border-top:2px solid #cbd5e1;` +
-        `border-bottom:1px solid #e2e8f0;padding:0 8px;` +
-        `height:${VEH_H}px;display:flex;align-items:center;` +
-        `font-size:10px;font-weight:600;color:#374151;gap:10px;`
-      );
-      const vIdStr = v.vehicleId ? ` · ${v.vehicleId.trim()}` : '';
-      const vMassStr = v.mass_t ? ` · ${v.mass_t.toFixed(1)} t` : '';
-      vHdr.textContent = `Vehicle ${v.vPos}${vIdStr}${vMassStr} · ${v.axles.length} axles`;
-      grid.appendChild(vHdr);
-
-      // Axle rows
-      v.axles.forEach((axle, aIdx) => {
-        // Axle label cell
-        const lblCell = el('div',
-          `height:${ROW_H}px;display:flex;align-items:center;padding:0 4px 0 6px;` +
-          `font-size:9px;color:#9ca3af;border-right:1px solid #e5e7eb;` +
-          `border-bottom:1px solid #f3f4f6;background:#fafafa;`
-        );
-        lblCell.textContent = `A${axle.axleNum}`;
-        grid.appendChild(lblCell);
-
-        // Parameter cells
-        COLS.forEach(col => {
-          const val = col.perVehicle ? vVals[col.label] : col.getAxleVal(axle);
-          const sev = val != null ? col.classify(val) : null;
-          const bg  = sev != null ? CELL_BG[sev] : CELL_BG.noData;
-          const fg  = sev != null ? CELL_TEXT[sev] : 'transparent';
-
-          const cell = el('div',
-            `height:${ROW_H}px;background:${bg};border-right:1px solid rgba(0,0,0,0.05);` +
-            `border-bottom:1px solid rgba(0,0,0,0.04);display:flex;align-items:center;` +
-            `justify-content:center;font-size:8px;font-weight:700;color:${fg};overflow:hidden;`
-          );
-
-          // Show numeric value only for non-nominal exceedances
-          const showValue = sev != null && sev !== SEVERITY.NOMINAL;
-          // For vehicle-level skew, only show text on first axle of vehicle
-          const showSkewText = col.perVehicle && aIdx === 0;
-          if (showValue && (!col.perVehicle || showSkewText)) {
-            cell.textContent = col.fmt(val);
-          }
-
-          // Tooltip for all cells that have a measurement
-          if (val != null) {
-            const sevLabel = sev !== SEVERITY.NOMINAL ? `\n⚠ Severity: ${sev}` : '';
-            const tipText =
-              `V${v.vPos} · Axle ${axle.axleNum}\n` +
-              `${col.label.replace('\n', ' ')}: ${col.fmt(val)}` + sevLabel;
-            attachTooltip(cell, tipText);
-          } else {
-            attachTooltip(cell, `V${v.vPos} · Axle ${axle.axleNum}\n${col.label.replace('\n', ' ')}: no data`);
-          }
-
-          grid.appendChild(cell);
-        });
-      });
-    });
-
-    // Wrap grid in vertical scroll container (for screen only — PDF expands it)
+    // ── Scroll wrapper ────────────────────────────────────
     const scrollWrap = document.createElement('div');
     scrollWrap.className = 'heatmap-v-scroll';
-    scrollWrap.appendChild(grid);
+
+    const inner = el('div', `width:${totalW}px;padding-bottom:4px;`);
+
+    // ── Sticky double-header ──────────────────────────────
+    const stickyHdr = el('div',
+      `position:sticky;top:0;z-index:10;background:#ffffff;` +
+      `border-bottom:2px solid #d1d5db;margin-bottom:8px;`
+    );
+
+    function mkGrpLabel(w, text, fg, bg, bdr) {
+      const d = el('div',
+        `width:${w}px;flex-shrink:0;text-align:center;font-size:9px;font-weight:700;` +
+        `letter-spacing:0.04em;color:${fg};background:${bg};` +
+        `border:1px solid ${bdr};border-bottom:none;border-radius:4px 4px 0 0;padding:3px 2px 2px;`
+      );
+      d.textContent = text;
+      return d;
+    }
+
+    function mkColHdrs(cols, fg, bg, bdr) {
+      const wrap = el('div',
+        `display:flex;gap:${BG}px;flex-shrink:0;background:${bg};` +
+        `border-left:1px solid ${bdr};border-right:1px solid ${bdr};padding:2px ${BG}px 4px;`
+      );
+      cols.forEach(col => {
+        const h = el('div',
+          `width:${BW}px;flex-shrink:0;text-align:center;font-size:7.5px;font-weight:700;color:${fg};line-height:1.3;`
+        );
+        h.innerHTML = col.label.replace('\n', '<br>') +
+          (col.perVehicle
+            ? '<br><span style="font-size:6.5px;opacity:0.65;font-weight:400;">(per veh)</span>'
+            : '');
+        wrap.appendChild(h);
+      });
+      return wrap;
+    }
+
+    // Row 1 — group labels (VROT_W + AXLE_W = INFO_W, same total)
+    const grpRow = el('div', `display:flex;align-items:flex-end;`);
+    grpRow.appendChild(el('div', `width:${INFO_W}px;flex-shrink:0;`));
+    grpRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
+    grpRow.appendChild(mkGrpLabel(vertW, '\u25b2\u2002Vertical Force Parameters', '#1e40af', '#dbeafe', '#bfdbfe'));
+    grpRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
+    grpRow.appendChild(mkGrpLabel(latW,  '\u2190\u2002Lateral Force Parameters',  '#5b21b6', '#ede9fe', '#c4b5fd'));
+    stickyHdr.appendChild(grpRow);
+
+    // Row 2 — column labels (spacer for rotated strip + "Axle" label)
+    const colRow = el('div', `display:flex;align-items:flex-end;`);
+    colRow.appendChild(el('div', `width:${VROT_W}px;flex-shrink:0;`));
+    const axleHdrCell = el('div',
+      `width:${AXLE_W}px;flex-shrink:0;font-size:9px;color:#9ca3af;font-weight:600;` +
+      `padding:2px 6px 2px 2px;text-align:right;`
+    );
+    axleHdrCell.textContent = 'Axle';
+    colRow.appendChild(axleHdrCell);
+    colRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
+    colRow.appendChild(mkColHdrs(VERT_COLS, '#1d4ed8', '#eff6ff', '#bfdbfe'));
+    colRow.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
+    colRow.appendChild(mkColHdrs(LAT_COLS,  '#6d28d9', '#f5f3ff', '#c4b5fd'));
+    stickyHdr.appendChild(colRow);
+
+    inner.appendChild(stickyHdr);
+
+    // ── Vehicle blocks ────────────────────────────────────
+    // Each vBlock is a flex ROW: [rotated sidebar | axle-number col | blocks area]
+    vehicles.forEach(v => {
+      const vVals = {};
+      [...VERT_COLS, ...LAT_COLS].filter(c => c.perVehicle).forEach(c => {
+        vVals[c.key] = c.getVehicleVal(v);
+      });
+
+      // Total pixel height of this vehicle's axle rows (blocks area height)
+      const vTotalH = v.axles.length * BH + (v.axles.length - 1) * BG;
+
+      const vBlock = el('div', `display:flex;margin-bottom:10px;`);
+
+      // ── Rotated vehicle-info strip ────────────────────
+      // Use transform:rotate(-90deg) instead of writing-mode to ensure
+      // compatibility with html2canvas (used by the PDF export).
+      const rotCol = el('div',
+        `width:${VROT_W}px;flex-shrink:0;height:${vTotalH}px;` +
+        `position:relative;overflow:hidden;` +
+        `background:#f1f5f9;border-left:3px solid #94a3b8;border-radius:2px 0 0 2px;`
+      );
+      // The text element's natural size is vTotalH × VROT_W; after -90° rotation
+      // it appears as VROT_W × vTotalH — perfectly filling the rotCol container.
+      const rotText = el('div',
+        `position:absolute;` +
+        `width:${vTotalH}px;height:${VROT_W}px;` +
+        `top:${(vTotalH - VROT_W) / 2}px;left:${(VROT_W - vTotalH) / 2}px;` +
+        `transform:rotate(-90deg);transform-origin:50% 50%;` +
+        `display:flex;align-items:center;justify-content:center;` +
+        `font-size:8px;font-weight:700;color:#475569;letter-spacing:0.03em;` +
+        `white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`
+      );
+      const vIdPart   = v.vehicleId && v.vehicleId.trim() ? `\u2002\u00b7\u2002${v.vehicleId.trim()}` : '';
+      const vMassPart = v.mass_t ? `\u2002\u00b7\u2002${v.mass_t.toFixed(1)}\u202Ft` : '';
+      rotText.textContent = `V${v.vPos}${vIdPart}${vMassPart}`;
+      rotCol.appendChild(rotText);
+      vBlock.appendChild(rotCol);
+
+      // ── Axle number column ────────────────────────────
+      const axleNumCol = el('div',
+        `width:${AXLE_W}px;flex-shrink:0;display:flex;flex-direction:column;gap:${BG}px;`
+      );
+      v.axles.forEach(axle => {
+        const lbl = el('div',
+          `height:${BH}px;display:flex;align-items:center;justify-content:flex-end;` +
+          `padding-right:6px;font-size:9px;color:#94a3b8;font-weight:600;flex-shrink:0;`
+        );
+        lbl.textContent = `A${axle.axleNum}`;
+        axleNumCol.appendChild(lbl);
+      });
+      vBlock.appendChild(axleNumCol);
+
+      // ── Axle data blocks ──────────────────────────────
+      const blocksArea = el('div', `display:flex;flex-direction:column;gap:${BG}px;`);
+      v.axles.forEach(axle => {
+        const row = el('div', `display:flex;align-items:center;height:${BH}px;`);
+
+        row.appendChild(mkDivider());
+
+        const vg = el('div', `display:flex;gap:${BG}px;`);
+        VERT_COLS.forEach(col => {
+          const val = col.perVehicle ? vVals[col.key] : col.getAxleVal(axle);
+          vg.appendChild(buildAxleBlock(val, col, v, axle, BW, BH));
+        });
+        row.appendChild(vg);
+
+        row.appendChild(mkDivider());
+
+        const lg = el('div', `display:flex;gap:${BG}px;`);
+        LAT_COLS.forEach(col => {
+          lg.appendChild(buildAxleBlock(col.getAxleVal(axle), col, v, axle, BW, BH));
+        });
+        row.appendChild(lg);
+
+        blocksArea.appendChild(row);
+      });
+      vBlock.appendChild(blocksArea);
+
+      inner.appendChild(vBlock);
+    });
+
+    scrollWrap.appendChild(inner);
     container.appendChild(scrollWrap);
     container.appendChild(buildLegend());
+  }
+
+  /**
+   * Builds one coloured block for the train heatmap. No text is rendered
+   * inside — hover tooltip carries the exact value and severity.
+   */
+  function buildAxleBlock(val, col, vehicle, axle, bw, bh) {
+    const sev = val != null ? col.classify(val) : null;
+    const bg  = sev != null ? CELL_BG[sev] : CELL_BG.noData;
+
+    const block = el('div',
+      `width:${bw}px;height:${bh}px;border-radius:4px;flex-shrink:0;` +
+      `background:${bg};border:1px solid rgba(0,0,0,0.07);`
+    );
+    if (sev && sev !== SEVERITY.NOMINAL) {
+      block.style.boxShadow = `0 0 0 1.5px ${LEGEND_BG[sev]}90`;
+    }
+
+    const colLabel = col.label.replace('\n', ' ');
+    const sevPart  = sev && sev !== SEVERITY.NOMINAL ? `\n\u26a0 Severity: ${sev}` : '';
+    const tipText  = val != null
+      ? `V${vehicle.vPos} \u00b7 Axle ${axle.axleNum}\n${colLabel}: ${col.fmt(val)}${sevPart}`
+      : `V${vehicle.vPos} \u00b7 Axle ${axle.axleNum}\n${colLabel}: no data`;
+    attachTooltip(block, tipText);
+
+    return block;
   }
 
   // ── Shared helpers ─────────────────────────────────────────────────────────

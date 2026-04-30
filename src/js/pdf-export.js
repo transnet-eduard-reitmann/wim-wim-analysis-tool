@@ -30,6 +30,15 @@ const PdfExport = (() => {
       el.style.maxHeight = 'none';
     });
 
+    // Convert sticky-positioned elements to relative so html2canvas captures
+    // them at their natural document position (sticky breaks when parent
+    // overflow is set to visible above).
+    const stickyEls = Array.from(element.querySelectorAll('*')).filter(
+      e => getComputedStyle(e).position === 'sticky'
+    );
+    const savedPositions = stickyEls.map(e => ({ e, pos: e.style.position }));
+    stickyEls.forEach(e => { e.style.position = 'relative'; });
+
     const btn = document.getElementById('download-btn');
     if (btn) btn.style.display = 'none';
 
@@ -53,6 +62,7 @@ const PdfExport = (() => {
           el.style.maxWidth  = maxWidth;
           el.style.maxHeight = maxHeight;
         });
+        savedPositions.forEach(({ e, pos }) => { e.style.position = pos; });
         if (btn) btn.style.display = '';
       });
   }

@@ -1,0 +1,4 @@
+* [ ] WIM-WIM system layout section in report should be improved. Also have a "Train Overview — Wheel Severity Heatmap"-like heatmap. Channels 1 to 13 are the vertical channels on one side and 14 to 26 on the other. 27 and 28 are the left and right lateral force channels. Combine graphs and table into one heatmap with clor codes and hover for actual values.
+* [ ] I really like the 'Train Overview — Wheel Severity Heatmap'. Unfortunately it has a scroll view for long train in the HTML that gets trucated with PDF export. Please reconsider width of the heatmap seeing that some trains are very long (800+) axles. Also, the current heatmap only show dynamic load. I want similar heatmaps for all the other parameters, i.e., skew loading, lateral force, etc.
+* [ ] Remove Wheel Severity Distribution. Adds no real value.
+* [ ] Change overall theme of webpage to 'light' theme. The report may require printing and dark colors will be bad for this.

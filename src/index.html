@@ -132,8 +132,9 @@
 
         <!-- Bridge channel layout heatmap -->
         <p class="text-xs text-gray-400 mb-3">
-          Physical bridge layout — hover over a channel cell for its offset value.
-          Ch 01–13: left rail vertical · Ch 14–26: right rail vertical · Ch 27–28: lateral force.
+          Physical bridge layout — hover over a channel cell for its offset value and type.
+          Ch 01–13: left rail vertical · Ch 14–26: right rail vertical · Ch 27–28: lateral force ·
+          Ch 29–30: proximity sensors (speed / direction / vehicle recognition) · Ch 31–32: trigger inputs (data acquisition start/stop).
         </p>
         <div id="channel-layout"></div>
       </div>
@@ -142,8 +143,9 @@
       <div class="bg-white rounded-xl border border-gray-200 p-5">
         <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-1">Train Overview — Multi-Parameter Heatmap</h2>
         <p class="text-xs text-gray-400 mb-4">
-          Each column = one axle. Scroll horizontally for long trains. Hover over any cell for exact values.
-          Vehicle boundaries are shown as thin dividers.
+          Each block = one axle measurement. Blocks are grouped into <strong class="text-blue-500">Vertical Force</strong> (Dyn Load · Skew)
+          and <strong class="text-purple-500">Lateral Force</strong> (Lat Force · Gauge Spreading) parameter sets.
+          Hover any block for its exact value. Vehicle number, ID and mass are shown in the left sidebar.
         </p>
         <div id="heatmap-container"></div>
       </div>
