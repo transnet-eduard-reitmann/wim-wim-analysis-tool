@@ -99,8 +99,7 @@ const Visualiser = (() => {
   function classifySkew(pct) {
     if (pct == null || isNaN(pct)) return SEVERITY.NOMINAL;
     const limit = ALARM_LIMITS.skewLoading.type2;
-    if (pct >= limit)         return SEVERITY.TYPE2;
-    if (pct >= limit / 2)     return SEVERITY.TYPE1;  // visual pre-warning at 6%
+    if (pct >= limit) return SEVERITY.TYPE2;
     return SEVERITY.NOMINAL;
   }
 
@@ -273,13 +272,13 @@ const Visualiser = (() => {
 
     // ── Alarm column definitions ──────────────────────────────────────────────
     const VERT_DYN_COLS = [
-      { key: 'dynL', label: 'Left',  getAxleVal: a => a.dynamicLoadLeft_kN,  classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1) + ' kN', perVehicle: false },
-      { key: 'dynR', label: 'Right', getAxleVal: a => a.dynamicLoadRight_kN, classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1) + ' kN', perVehicle: false },
+      { key: 'dynL', label: 'Left',  getAxleVal: a => a.dynamicLoadLeft_kN,  classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1) + ' kN', cellFmt: v => v.toFixed(1), perVehicle: false },
+      { key: 'dynR', label: 'Right', getAxleVal: a => a.dynamicLoadRight_kN, classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1) + ' kN', cellFmt: v => v.toFixed(1), perVehicle: false },
     ];
     const LAT_COLS = [
-      { key: 'latL',  label: 'Lateral\nForce L',  getAxleVal: a => a.lateralForceLeft_t,    classify: classifyLateral, fmt: v => v.toFixed(2) + ' t', perVehicle: false },
-      { key: 'latR',  label: 'Lateral\nForce R',  getAxleVal: a => a.lateralForceRight_t,   classify: classifyLateral, fmt: v => v.toFixed(2) + ' t', perVehicle: false },
-      { key: 'gauge', label: 'Gauge\nSpreading',  getAxleVal: a => a.gaugeSpreadingForce_t, classify: classifyGauge,   fmt: v => v.toFixed(2) + ' t', perVehicle: false },
+      { key: 'latL',  label: 'Lateral\nForce L',  getAxleVal: a => a.lateralForceLeft_t,    classify: classifyLateral, fmt: v => v.toFixed(1) + ' t', cellFmt: v => v.toFixed(1), perVehicle: false },
+      { key: 'latR',  label: 'Lateral\nForce R',  getAxleVal: a => a.lateralForceRight_t,   classify: classifyLateral, fmt: v => v.toFixed(1) + ' t', cellFmt: v => v.toFixed(1), perVehicle: false },
+      { key: 'gauge', label: 'Gauge\nSpreading',  getAxleVal: a => a.gaugeSpreadingForce_t, classify: classifyGauge,   fmt: v => v.toFixed(1) + ' t', cellFmt: v => v.toFixed(1), perVehicle: false },
     ];
 
     // Layout constants (px)
@@ -695,19 +694,25 @@ const Visualiser = (() => {
   }
 
   /**
-   * Builds one coloured alarm block for the train heatmap. No text is rendered
-   * inside — hover tooltip carries the exact value and severity.
+   * Builds one coloured alarm block for the train heatmap. Value is rendered
+   * as text inside the cell; hover tooltip carries the full detail.
    */
   function buildAxleBlock(val, col, vehicle, axle, bw, bh) {
-    const sev = val != null ? col.classify(val) : null;
-    const bg  = sev != null ? CELL_BG[sev] : CELL_BG.noData;
+    const sev    = val != null ? col.classify(val) : null;
+    const bg     = sev != null ? CELL_BG[sev] : CELL_BG.noData;
+    const fg     = sev != null ? (CELL_TEXT[sev] || '#15803d') : '#9ca3af';
 
     const block = el('div',
       `width:${bw}px;height:${bh}px;border-radius:4px;flex-shrink:0;` +
-      `background:${bg};border:1px solid rgba(0,0,0,0.07);`
+      `background:${bg};border:1px solid rgba(0,0,0,0.07);` +
+      `display:flex;align-items:center;justify-content:center;` +
+      `font-size:7px;font-weight:600;color:${fg};overflow:hidden;line-height:1.2;text-align:center;`
     );
     if (sev && sev !== SEVERITY.NOMINAL) {
       block.style.boxShadow = `0 0 0 1.5px ${LEGEND_BG[sev]}90`;
+    }
+    if (val != null) {
+      block.textContent = col.cellFmt ? col.cellFmt(val) : col.fmt(val);
     }
 
     const colLabel = col.label.replace('\n', ' ');
