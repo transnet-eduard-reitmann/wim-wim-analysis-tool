@@ -25,7 +25,7 @@ The tool is a pure static web application (HTML + JavaScript). No backend or ser
 
 ## Analysis Standards
 
-Alarm limits are sourced from **BBD5249 v3.1** — *Alarm Limits for Weighbridges, Wheel Impact Load Detectors, Skew Loading, and Bogie Condition Monitoring* (refer to `docs/` folder).
+Alarm limits are sourced from **BBD5249 v3.1** — *Alarm Limits for Weighbridges, Wheel Impact Load Detectors, Skew Loading, and Bogie Condition Monitoring*.
 
 ## Folder Structure
 
@@ -41,8 +41,7 @@ Alarm limits are sourced from **BBD5249 v3.1** — *Alarm Limits for Weighbridge
 │       └── pdf-export.js PDF report export
 ├── config/
 │   └── alarm-limits.js   BBD5249 limits (single source of truth)
-├── data/samples/         Anonymised sample CSV files for testing
-└── docs/                 BBD5249 specification document
+└── data/samples/         Anonymised sample CSV files for testing
 ```
 
 ## Disclaimer
