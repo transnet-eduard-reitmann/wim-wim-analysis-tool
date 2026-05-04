@@ -21,18 +21,82 @@ const Parser = (() => {
 
   const TON_TO_KN = 9.80665;
 
+  // Known TYPE column values that identify a condition file
+  const CONDITION_TYPE_SIGNATURES = [
+    'Bridge Offsets [T]', 'Bridge Effectivity [T]', 'Dynamic Load [A]',
+    'Lateral Force [A]', 'Mass [V]', 'Type [V]', 'Speed [V]',
+  ];
+
+  /**
+   * Inspects the CSV text and returns 'condition', 'alarm', or 'unknown'.
+   * Detection is based on file content (column headers and data patterns),
+   * not the filename.
+   * @param {string} csvText
+   * @returns {'condition'|'alarm'|'unknown'}
+   */
+  function detectFileType(csvText) {
+    const rows = parseRows(csvText);
+
+    // Check header rows for column signature
+    const hRow = rows.find(r => r[0] === 'H' && r.length >= 8);
+    if (hRow) {
+      // Alarm files have STATE as col[1]; condition files have COMPONENT
+      if (hRow[1] && hRow[1].toUpperCase() === 'STATE') return 'alarm';
+      if (hRow[1] && hRow[1].toUpperCase() === 'COMPONENT') return 'condition';
+    }
+
+    // Fallback: check D-row TYPE column
+    const dRows = rows.filter(r => r[0] === 'D' && r.length >= 9);
+    for (const r of dRows) {
+      if (CONDITION_TYPE_SIGNATURES.includes(r[8])) return 'condition';
+    }
+
+    return 'unknown';
+  }
+
   /**
    * Parses a condition CSV file text and returns a structured TrainData object.
+   * Warnings are returned in the `warnings` array on the result — callers should
+   * surface these to the user without blocking the analysis.
    * @param {string} csvText - raw file contents
    * @param {string} fileName - original filename for metadata
    * @returns {TrainData}
    */
   function parseConditionFile(csvText, fileName) {
     const rows = parseRows(csvText);
-    const dataRows = rows.filter(r => r[0] === 'D' && r.length >= 12);
+    let dataRows = rows.filter(r => r[0] === 'D' && r.length >= 12);
 
     if (dataRows.length === 0) {
       throw new Error('No data rows found in this file. Check that it is a valid ITCMS condition CSV.');
+    }
+
+    const warnings = [];
+
+    // ── Multi-passage detection ──────────────────────────────────────────────
+    // Group D-rows by their TIME column (col[2]). Multiple distinct timestamps
+    // in the same file means the ITCMS query exported data from several separate
+    // train passages merged into one file. This causes duplicate V POS entries
+    // and produces misleading train overview graphics.
+    const passageGroups = groupRowsByPassage(dataRows);
+    if (passageGroups.length > 1) {
+      const timestamps = passageGroups.map(g => g.timestamp);
+      const largest = passageGroups.reduce((a, b) => a.rows.length >= b.rows.length ? a : b);
+
+      warnings.push({
+        code: 'MULTI_PASSAGE',
+        message:
+          `This file contains data from ${passageGroups.length} separate train passages ` +
+          `(timestamps: ${timestamps.join(', ')}). ` +
+          `Only the passage with the most data (${largest.timestamp}, ` +
+          `${largest.rows.length} rows) has been used for analysis. ` +
+          `Probable cause: the ITCMS query exported a date/time range that captured ` +
+          `multiple passages for the same train ID. Re-export using a narrower time ` +
+          `window that covers only the passage of interest to resolve this.`,
+        timestamps,
+        usedTimestamp: largest.timestamp,
+      });
+
+      dataRows = largest.rows;
     }
 
     const meta = extractMeta(dataRows[0], fileName);
@@ -41,7 +105,23 @@ const Parser = (() => {
     const trainMass = extractTrainMass(dataRows);
     const vehicles = extractVehicles(dataRows);
 
-    return { meta, offsets, effectivity, trainMass, vehicles };
+    return { meta, offsets, effectivity, trainMass, vehicles, warnings };
+  }
+
+  /**
+   * Groups data rows into passages by their TIME column value.
+   * Each unique time stamp is treated as a distinct passage.
+   * @param {string[][]} dataRows
+   * @returns {{ timestamp: string, rows: string[][] }[]}
+   */
+  function groupRowsByPassage(dataRows) {
+    const map = new Map();
+    for (const row of dataRows) {
+      const ts = row[2] || '';
+      if (!map.has(ts)) map.set(ts, []);
+      map.get(ts).push(row);
+    }
+    return Array.from(map.entries()).map(([timestamp, rows]) => ({ timestamp, rows }));
   }
 
   /**
@@ -232,6 +312,6 @@ const Parser = (() => {
     };
   }
 
-  return { parseConditionFile, parseAlarmFile };
+  return { parseConditionFile, parseAlarmFile, detectFileType };
 
 })();

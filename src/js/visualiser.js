@@ -79,26 +79,26 @@ const Visualiser = (() => {
     return SEVERITY.NOMINAL;
   }
 
-  function classifyLateral(t) {
+  function classifyLateral(t, lf) {
     if (t == null || isNaN(t)) return SEVERITY.NOMINAL;
-    const lf = ALARM_LIMITS.lateralForce;
+    lf = lf || ALARM_LIMITS.lateralForce;
     if (t >= lf.type3Force) return SEVERITY.TYPE3;
     if (t >= lf.type2Min)   return SEVERITY.TYPE2;
     if (t >= lf.type1Min)   return SEVERITY.TYPE1;
     return SEVERITY.NOMINAL;
   }
 
-  function classifyGauge(t) {
+  function classifyGauge(t, gs) {
     if (t == null || isNaN(t)) return SEVERITY.NOMINAL;
-    const gs = ALARM_LIMITS.gaugeSpreading;
+    gs = gs || ALARM_LIMITS.gaugeSpreading;
     if (t >= gs.type2)    return SEVERITY.TYPE2;
     if (t >= gs.type1Min) return SEVERITY.TYPE1;
     return SEVERITY.NOMINAL;
   }
 
-  function classifySkew(pct) {
+  function classifySkew(pct, limit) {
     if (pct == null || isNaN(pct)) return SEVERITY.NOMINAL;
-    const limit = ALARM_LIMITS.skewLoading.type2;
+    limit = limit != null ? limit : ALARM_LIMITS.skewLoading.type2;
     if (pct >= limit) return SEVERITY.TYPE2;
     return SEVERITY.NOMINAL;
   }
@@ -268,7 +268,12 @@ const Visualiser = (() => {
       return;
     }
 
-    const impactLimits = ALARM_LIMITS.wheelImpact[railType];
+    // Use effective limits from the analysis result if available (respects overrides)
+    const limits = (analysisResult && analysisResult.effectiveLimits) || ALARM_LIMITS;
+    const impactLimits = limits.wheelImpact[railType];
+    const lfLimits = limits.lateralForce;
+    const gsLimits = limits.gaugeSpreading;
+    const skewLimit = limits.skewLoading.type2;
 
     // ── Alarm column definitions ──────────────────────────────────────────────
     const VERT_DYN_COLS = [
@@ -276,9 +281,9 @@ const Visualiser = (() => {
       { key: 'dynR', label: 'Right', getAxleVal: a => a.dynamicLoadRight_kN, classify: v => classifyDynLoad(v, impactLimits), fmt: v => v.toFixed(1) + ' kN', cellFmt: v => v.toFixed(1), perVehicle: false },
     ];
     const LAT_COLS = [
-      { key: 'latL',  label: 'Lateral\nForce L',  getAxleVal: a => a.lateralForceLeft_t,    classify: classifyLateral, fmt: v => v.toFixed(1) + ' t', cellFmt: v => v.toFixed(1), perVehicle: false },
-      { key: 'latR',  label: 'Lateral\nForce R',  getAxleVal: a => a.lateralForceRight_t,   classify: classifyLateral, fmt: v => v.toFixed(1) + ' t', cellFmt: v => v.toFixed(1), perVehicle: false },
-      { key: 'gauge', label: 'Gauge\nSpreading',  getAxleVal: a => a.gaugeSpreadingForce_t, classify: classifyGauge,   fmt: v => v.toFixed(1) + ' t', cellFmt: v => v.toFixed(1), perVehicle: false },
+      { key: 'latL',  label: 'Lateral\nForce L',  getAxleVal: a => a.lateralForceLeft_t,    classify: v => classifyLateral(v, lfLimits), fmt: v => v.toFixed(1) + ' t', cellFmt: v => v.toFixed(1), perVehicle: false },
+      { key: 'latR',  label: 'Lateral\nForce R',  getAxleVal: a => a.lateralForceRight_t,   classify: v => classifyLateral(v, lfLimits), fmt: v => v.toFixed(1) + ' t', cellFmt: v => v.toFixed(1), perVehicle: false },
+      { key: 'gauge', label: 'Gauge\nSpreading',  getAxleVal: a => a.gaugeSpreadingForce_t, classify: v => classifyGauge(v, gsLimits),   fmt: v => v.toFixed(1) + ' t', cellFmt: v => v.toFixed(1), perVehicle: false },
     ];
 
     // Layout constants (px)
@@ -508,11 +513,11 @@ const Visualiser = (() => {
       vBlock.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
 
       // ── Skew Loading — S-S and E-E vehicle-height merged cells ──
-      vBlock.appendChild(buildVehicleSkewCell(v.sideToSideSkew, '⇔', v, vTotalH, BW));
+      vBlock.appendChild(buildVehicleSkewCell(v.sideToSideSkew, '⇔', v, vTotalH, BW, skewLimit));
       const skewSep = el('div', `width:${GG}px;flex-shrink:0;display:flex;align-items:stretch;justify-content:center;`);
       skewSep.appendChild(el('div', `width:1px;background:#bfdbfe;margin:4px 0;`));
       vBlock.appendChild(skewSep);
-      vBlock.appendChild(buildVehicleSkewCell(v.endToEndSkew, '↕', v, vTotalH, BW));
+      vBlock.appendChild(buildVehicleSkewCell(v.endToEndSkew, '↕', v, vTotalH, BW, skewLimit));
 
       vBlock.appendChild(el('div', `width:${GG}px;flex-shrink:0;`));
 
@@ -620,9 +625,9 @@ const Visualiser = (() => {
   }
 
   // Vehicle-level skew cell — spans full vehicle height, alarm-coloured.
-  function buildVehicleSkewCell(skewFrac, label, vehicle, cellH, cellW) {
+  function buildVehicleSkewCell(skewFrac, label, vehicle, cellH, cellW, skewLimit) {
     const pct  = skewFrac != null && !isNaN(skewFrac) ? skewFrac * 100 : null;
-    const sev  = pct != null ? classifySkew(pct) : null;
+    const sev  = pct != null ? classifySkew(pct, skewLimit) : null;
     const bg   = sev != null ? CELL_BG[sev]   : CELL_BG.noData;
     const fg   = sev != null ? CELL_TEXT[sev]  : '#9ca3af';
     const cell = el('div',

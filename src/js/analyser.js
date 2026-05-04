@@ -9,12 +9,13 @@ const Analyser = (() => {
 
   /**
    * Main entry point. Analyses a parsed TrainData object against BBD5249 limits.
-   * @param {object} trainData - output from Parser.parseConditionFile()
-   * @param {string} railType  - RAIL_TYPE.S_LINE or RAIL_TYPE.N1_LINE
+   * @param {object} trainData   - output from Parser.parseConditionFile()
+   * @param {string} railType    - RAIL_TYPE.S_LINE or RAIL_TYPE.N1_LINE
+   * @param {object} [overrides] - optional partial limits object to override ALARM_LIMITS
    * @returns {AnalysisResult}
    */
-  function analyse(trainData, railType) {
-    const limits = ALARM_LIMITS;
+  function analyse(trainData, railType, overrides = null) {
+    const limits = overrides ? deepMerge(ALARM_LIMITS, overrides) : ALARM_LIMITS;
     const impactLimits = limits.wheelImpact[railType];
 
     const channelHealth = assessChannelHealth(trainData.offsets, limits.channelOffset);
@@ -24,10 +25,12 @@ const Analyser = (() => {
     const allExceedances = vehicleResults.flatMap(v => v.exceedances);
 
     const stats = computeStats(allAxleResults, allExceedances);
-    const verdict = determineVerdict(channelHealth, stats, limits.falseAlarmHeuristics);
+    const suppressedParams = detectSuppressedParameters(trainData.vehicles);
+    const verdict = determineVerdict(channelHealth, stats, limits.falseAlarmHeuristics, suppressedParams);
 
     return {
       railType,
+      effectiveLimits: limits,
       channelHealth,
       vehicleResults,
       stats,
@@ -209,77 +212,266 @@ const Analyser = (() => {
   }
 
   /**
-   * Determines whether the alarm is likely true, false, or inconclusive,
-   * and generates plain-English rationale bullets.
+   * Detects parameters where every recorded value is identical (especially zero),
+   * which is a strong indicator that the channel or parameter is disabled or
+   * suppressed on this measurement system.
+   *
+   * Requires at least 3 non-null readings to be meaningful.
    */
-  function determineVerdict(channelHealth, stats, heuristics) {
-    const reasons = [];
-    let trueSignals = 0;
-    let falseSignals = 0;
+  function detectSuppressedParameters(vehicles) {
+    const suppressed = [];
 
-    // --- False alarm indicators ---
-    if (channelHealth.faultFraction >= heuristics.suspectChannelFraction) {
-      falseSignals += 2;
-      reasons.push(`${channelHealth.faultCount} of ${channelHealth.total} bridge channels have large offsets (≥ ${ALARM_LIMITS.channelOffset.faultThreshold} t), indicating the measurement system may be faulty.`);
-    } else if (channelHealth.warningCount > 0) {
-      falseSignals += 1;
-      reasons.push(`${channelHealth.warningCount} bridge channel(s) show elevated offsets — monitor system calibration.`);
+    const params = [
+      {
+        label: 'Dynamic Load (Left)',
+        values: vehicles.flatMap(v => v.axles.map(a => a.dynamicLoadLeft_kN).filter(x => x != null)),
+      },
+      {
+        label: 'Dynamic Load (Right)',
+        values: vehicles.flatMap(v => v.axles.map(a => a.dynamicLoadRight_kN).filter(x => x != null)),
+      },
+      {
+        label: 'Lateral Force (Left)',
+        values: vehicles.flatMap(v => v.axles.map(a => a.lateralForceLeft_t).filter(x => x != null)),
+      },
+      {
+        label: 'Lateral Force (Right)',
+        values: vehicles.flatMap(v => v.axles.map(a => a.lateralForceRight_t).filter(x => x != null)),
+      },
+      {
+        label: 'Gauge Spreading Force',
+        values: vehicles.flatMap(v => v.axles.map(a => a.gaugeSpreadingForce_t).filter(x => x != null)),
+      },
+      {
+        label: 'Side-to-Side Skew',
+        values: vehicles.map(v => v.sideToSideSkew).filter(x => x != null),
+      },
+      {
+        label: 'End-to-End Skew',
+        values: vehicles.map(v => v.endToEndSkew).filter(x => x != null),
+      },
+    ];
+
+    for (const p of params) {
+      if (p.values.length < 3) continue;
+      const first = p.values[0];
+      if (p.values.every(v => v === first)) {
+        suppressed.push({ label: p.label, value: first, allZero: first === 0 });
+      }
     }
 
-    if (stats.isOneSided && stats.exceedingWheels > 2) {
-      falseSignals += 2;
-      const side = stats.leftExceedances === 0 ? 'Right' : 'Left';
-      reasons.push(`All ${stats.exceedingWheels} exceedances are on the ${side} rail side only — a systematic one-sided pattern strongly suggests a faulty sensor rather than a genuine wheel defect.`);
-    }
+    return suppressed;
+  }
 
-    if (stats.exceedanceRate >= heuristics.highExceedanceRate && stats.isOneSided) {
-      falseSignals += 2;
-      reasons.push(`${(stats.exceedanceRate * 100).toFixed(1)}% of measured wheels exceed limits — this rate is too high to be explained by genuine wheel defects across an entire train.`);
-    }
+  /**
+   * Determines whether the alarm is likely true, false, or requires review,
+   * and generates plain-English observations and rationale bullets.
+   *
+   * Verdict philosophy:
+   *   - Observations (factual) are always listed regardless of verdict.
+   *   - LIKELY FALSE ALARM requires clear systematic evidence: a purely one-sided
+   *     exceedance pattern (all on one rail) corroborated by either faulty channels
+   *     OR a high exceedance rate, with no Type 3 exceedances.
+   *   - LIKELY TRUE ALARM requires either a Type 3 exceedance with a healthy
+   *     measurement system, or a genuinely isolated low-count exceedance with a
+   *     healthy system and no one-sided pattern artefact.
+   *   - REVIEW REQUIRED is the default for everything else — mixed signals, high
+   *     exceedance counts without a clear pattern, ambiguous channel health, etc.
+   *     This errs on the side of caution: a qualified technician decides.
+   */
+  function determineVerdict(channelHealth, stats, heuristics, suppressedParams = []) {
+    const observations = [];
+    const verdictRationale = [];
 
-    // High raw count of exceedances — statistically implausible for genuine defects
-    if (stats.totalExceedances > 10) {
-      falseSignals += 2;
-      reasons.push(`${stats.totalExceedances} individual exceedances recorded across the train. In practice, more than 10 exceedances in a single pass strongly suggests a system measurement issue (faulty channel, calibration drift, or electrical interference) rather than coincidental defects across many wheels.`);
-    }
+    // ── Derived flags ────────────────────────────────────────────────────────
+    const systemFaulty  = channelHealth.faultFraction >= heuristics.suspectChannelFraction;
+    const systemWarning = !systemFaulty && channelHealth.warningCount > 0;
+    const systemHealthy = !systemFaulty && !systemWarning;
 
-    // --- True alarm indicators ---
-    if (stats.type3Count > 0) {
-      trueSignals += 3;
-      reasons.push(`${stats.type3Count} Type 3 (safety-critical) exceedance(s) detected — these represent forces well above the threshold and are unlikely to be measurement artefacts.`);
-    }
+    const totalSided    = stats.leftExceedances + stats.rightExceedances;
+    const purelyOneSided = totalSided > 2 &&
+      (stats.leftExceedances === 0 || stats.rightExceedances === 0);
 
-    if (stats.exceedanceRate <= heuristics.lowExceedanceRate && stats.exceedingWheels > 0 && !stats.isOneSided) {
-      trueSignals += 2;
-      reasons.push(`Only ${stats.exceedingWheels} wheel(s) (${(stats.exceedanceRate * 100).toFixed(2)}% of the train) exceed limits — an isolated defect on a small number of wheels is consistent with a true alarm.`);
-    }
+    const isolated = stats.exceedingWheels > 0 &&
+      stats.exceedanceRate <= heuristics.lowExceedanceRate &&
+      stats.totalExceedances <= 5;
 
-    if (channelHealth.faultFraction < heuristics.suspectChannelFraction && channelHealth.warningCount === 0 && stats.exceedingWheels > 0) {
-      trueSignals += 1;
-      reasons.push('All bridge channels show healthy offsets close to zero, indicating the measurement system is functioning normally.');
-    }
+    const highRate  = stats.exceedanceRate >= heuristics.highExceedanceRate;
+    const highCount = stats.totalExceedances > 10;
 
-    if (stats.totalExceedances === 0) {
-      reasons.push('No exceedances detected against BBD5249 v3.1 limits at the selected rail type. Verify the correct rail type was selected.');
-    }
-
-    let verdict, confidence;
-    if (stats.totalExceedances === 0) {
-      verdict = 'NO ALARM';
-      confidence = 'N/A';
-    } else if (falseSignals > trueSignals && falseSignals >= 2) {
-      verdict = 'LIKELY FALSE ALARM';
-      confidence = falseSignals >= 4 ? 'High' : 'Moderate';
-    } else if (trueSignals > falseSignals && trueSignals >= 2) {
-      verdict = 'LIKELY TRUE ALARM';
-      confidence = trueSignals >= 4 ? 'High' : 'Moderate';
+    // ── Observations (factual, always shown) ─────────────────────────────────
+    if (systemFaulty) {
+      observations.push(
+        `${channelHealth.faultCount} of ${channelHealth.total} bridge channels show large offsets ` +
+        `(≥ ${ALARM_LIMITS.channelOffset.faultThreshold} t) — the measurement system may not be ` +
+        `functioning correctly and measurements should be treated with caution.`
+      );
+    } else if (systemWarning) {
+      observations.push(
+        `${channelHealth.warningCount} bridge channel(s) show elevated offsets — ` +
+        `monitor system calibration.`
+      );
     } else {
-      verdict = 'INCONCLUSIVE';
-      confidence = 'Low';
-      reasons.push('Mixed indicators — manual review by a qualified technician is required.');
+      observations.push(
+        'All bridge channels show healthy offsets, indicating the measurement system ' +
+        'was functioning normally during this passage.'
+      );
     }
 
-    return { verdict, confidence, reasons };
+    if (purelyOneSided) {
+      const side = stats.leftExceedances === 0 ? 'Right' : 'Left';
+      observations.push(
+        `All ${stats.exceedingWheels} exceedance(s) are confined to the ${side} rail side — ` +
+        `a purely one-sided pattern can indicate a faulty or miscalibrated sensor on that rail, ` +
+        `but may also reflect a genuine track or wheel geometry bias.`
+      );
+    }
+
+    if (highCount) {
+      observations.push(
+        `${stats.totalExceedances} individual exceedances were recorded across this passage — ` +
+        `a high count spread across many wheels is atypical for isolated genuine defects and ` +
+        `may indicate measurement artefacts (channel drift, electrical interference, or calibration offset).`
+      );
+    } else if (highRate) {
+      observations.push(
+        `${(stats.exceedanceRate * 100).toFixed(1)}% of measured wheels exceed limits — ` +
+        `an exceedance rate this high across a full consist is unusual and warrants scrutiny.`
+      );
+    }
+
+    if (isolated) {
+      observations.push(
+        `Only ${stats.exceedingWheels} wheel(s) (${(stats.exceedanceRate * 100).toFixed(2)}% of ` +
+        `the consist) exceed limits — an isolated low-count exceedance pattern is more consistent ` +
+        `with a localised wheel or loading defect.`
+      );
+    }
+
+    if (stats.type3Count > 0) {
+      observations.push(
+        `${stats.type3Count} Type 3 (safety-critical) exceedance(s) detected — these forces are ` +
+        `significantly above threshold and demand investigation irrespective of measurement system status.`
+      );
+    }
+
+    if (stats.totalExceedances === 0) {
+      observations.push(
+        'No exceedances detected against the applied limits. ' +
+        'Verify the correct rail type is selected if an alarm was expected.'
+      );
+    }
+
+    if (suppressedParams.length > 0) {
+      const allZeroList  = suppressedParams.filter(p => p.allZero).map(p => p.label);
+      const uniformList  = suppressedParams.filter(p => !p.allZero).map(p => `${p.label} (all = ${p.value})`);
+      const nameList     = [...allZeroList, ...uniformList];
+      const paramStr     = nameList.length === 1
+        ? nameList[0]
+        : nameList.slice(0, -1).join(', ') + ' and ' + nameList[nameList.length - 1];
+      const verb         = suppressedParams.length === 1 ? 'parameter appears' : 'parameters appear';
+      observations.push(
+        `The following ${verb} to be disabled or suppressed on this measurement system ` +
+        `(all recorded values are identical${ allZeroList.length === suppressedParams.length ? ' and zero' : '' }): ` +
+        `${paramStr}. Alarms generated from these channels should be disregarded.`
+      );
+    }
+
+    // ── Verdict ──────────────────────────────────────────────────────────────
+    let verdict, confidence;
+
+    if (stats.totalExceedances === 0) {
+      // ── No exceedances — nothing to classify
+      verdict    = 'NO ALARM';
+      confidence = 'N/A';
+
+    } else if (stats.type3Count > 0 && systemHealthy) {
+      // ── Type 3 forces with a healthy system — strong true alarm signal.
+      //    A measurement system confirmed as healthy cannot produce a Type 3
+      //    artefact of this magnitude without a genuine physical cause.
+      verdict    = 'LIKELY TRUE ALARM';
+      confidence = stats.type3Count >= 2 ? 'High' : 'Moderate';
+      verdictRationale.push(
+        'Type 3 exceedance(s) recorded with all bridge channels healthy — ' +
+        'a healthy measurement system is unlikely to produce artefacts of this magnitude. ' +
+        'Immediate investigation of the flagged vehicle(s) is required.'
+      );
+
+    } else if (
+      purelyOneSided &&
+      stats.type3Count === 0 &&
+      (systemFaulty || highRate)
+    ) {
+      // ── Purely one-sided pattern corroborated by system faults or high rate.
+      //    Both conditions together form a coherent false-alarm signature:
+      //    a single compromised sensor produces exceedances on only one rail
+      //    at an implausibly high rate.
+      verdict    = 'LIKELY FALSE ALARM';
+      confidence = (systemFaulty && highRate) ? 'High' : 'Moderate';
+      if (systemFaulty) {
+        verdictRationale.push(
+          'A purely one-sided exceedance pattern combined with faulty bridge channels is most ' +
+          'consistent with a sensor or calibration fault on that rail.'
+        );
+      } else {
+        verdictRationale.push(
+          'A purely one-sided exceedance pattern at an implausibly high rate suggests a ' +
+          'sensor fault rather than genuine wheel defects distributed across the consist.'
+        );
+      }
+
+    } else if (isolated && systemHealthy && !purelyOneSided && !highCount) {
+      // ── Isolated exceedance on a healthy system without artefact indicators.
+      //    Low rate + low count + healthy system + bilateral distribution
+      //    is the most credible true-alarm signature short of a Type 3.
+      verdict    = 'LIKELY TRUE ALARM';
+      confidence = 'Moderate';
+      verdictRationale.push(
+        'A small number of isolated exceedances on a healthy measurement system, ' +
+        'without a one-sided or high-count artefact pattern, is consistent with a ' +
+        'localised wheel or loading defect.'
+      );
+
+    } else {
+      // ── Everything else — too ambiguous to classify reliably.
+      //    This covers: Type 3 with faulty/warning system; high count without
+      //    clear pattern; one-sided with healthy system; moderate rate with
+      //    mixed channel health; and any other combination not clearly meeting
+      //    the evidence thresholds above.
+      verdict    = 'REVIEW REQUIRED';
+      confidence = 'N/A';
+      verdictRationale.push(
+        'The data presents mixed or ambiguous indicators that cannot be reliably ' +
+        'classified by automated analysis. A trained technician must review the ' +
+        'raw data and train overview illustration before any operational decision is made.'
+      );
+    }
+
+    return { verdict, confidence, reasons: [...observations, ...verdictRationale] };
+  }
+
+  // ── Utility ────────────────────────────────────────────────────────────────
+
+  /**
+   * Deep-merges `override` into a copy of `base`. Only plain objects are merged
+   * recursively; primitive leaf values in `override` replace those in `base`.
+   */
+  function deepMerge(base, override) {
+    const result = Object.assign({}, base);
+    for (const key of Object.keys(override)) {
+      if (
+        override[key] !== null &&
+        typeof override[key] === 'object' &&
+        !Array.isArray(override[key]) &&
+        typeof base[key] === 'object' &&
+        base[key] !== null
+      ) {
+        result[key] = deepMerge(base[key], override[key]);
+      } else {
+        result[key] = override[key];
+      }
+    }
+    return result;
   }
 
   return { analyse };

@@ -12,6 +12,7 @@
   let trainData       = null;
   let analysisResult  = null;
   let currentRailType = RAIL_TYPE.S_LINE;
+  let limitOverrides  = {};   // partial ALARM_LIMITS object — built from the limits editor
 
   // ── Init ───────────────────────────────────────────────────────────────────
 
@@ -19,6 +20,7 @@
     setupDropZone();
     setupFileInput();
     setupRailTypeSelector();
+    setupLimitsEditor();
     setupDownloadButton();
   });
 
@@ -51,11 +53,23 @@
     reader.onload = e => {
       try {
         const text = e.target.result;
-        if (file.name.toLowerCase().includes('-alarm')) {
-          setStatus('error', 'This is an alarm file. Please upload a condition file (-cond.csv) for analysis.');
+
+        // Detect file type from content, not filename
+        const fileType = Parser.detectFileType(text);
+        if (fileType === 'alarm') {
+          setStatus('error', 'This is an alarm file. Please upload a condition data file for analysis.');
           return;
         }
+        if (fileType === 'unknown') {
+          setStatus('error', 'Unrecognised file format. Please upload a valid ITCMS condition CSV.');
+          return;
+        }
+
         trainData = Parser.parseConditionFile(text, file.name);
+
+        // Surface any data-quality warnings from the parser
+        renderDataWarnings(trainData.warnings || []);
+
         runAnalysis();
       } catch (err) {
         setStatus('error', `Failed to parse file: ${err.message}`);
@@ -74,12 +88,68 @@
     });
   }
 
+  // ── Alarm limits editor ────────────────────────────────────────────────────
+
+  function setupLimitsEditor() {
+    const toggle = document.getElementById('limits-toggle');
+    const panel  = document.getElementById('limits-panel');
+    if (toggle && panel) {
+      toggle.addEventListener('click', () => {
+        panel.classList.toggle('hidden');
+        toggle.querySelector('.toggle-chevron').textContent = panel.classList.contains('hidden') ? '▶' : '▼';
+      });
+    }
+
+    // Wire up every limit input to rebuild overrides and re-run analysis
+    const inputs = document.querySelectorAll('[data-limit]');
+    inputs.forEach(input => {
+      input.addEventListener('change', () => {
+        buildLimitOverrides();
+        if (trainData) runAnalysis();
+      });
+    });
+  }
+
+  /**
+   * Reads all [data-limit] inputs and builds the limitOverrides object that is
+   * passed to Analyser.analyse(). Only values that differ from the hard-coded
+   * defaults are included, but deepMerge in analyser.js handles the full merge.
+   */
+  function buildLimitOverrides() {
+    const inputs = document.querySelectorAll('[data-limit]');
+    limitOverrides = {};
+    inputs.forEach(input => {
+      const path = input.getAttribute('data-limit').split('.');
+      const val  = parseFloat(input.value);
+      if (isNaN(val)) return;
+      let obj = limitOverrides;
+      for (let i = 0; i < path.length - 1; i++) {
+        if (!obj[path[i]]) obj[path[i]] = {};
+        obj = obj[path[i]];
+      }
+      obj[path[path.length - 1]] = val;
+    });
+  }
+
+  /** Reset all limit inputs to the ALARM_LIMITS defaults */
+  function resetLimits() {
+    document.querySelectorAll('[data-limit]').forEach(input => {
+      const path = input.getAttribute('data-limit').split('.');
+      let val = ALARM_LIMITS;
+      for (const key of path) val = val[key];
+      input.value = val;
+    });
+    limitOverrides = {};
+    if (trainData) runAnalysis();
+  }
+
   // ── Analysis and report ────────────────────────────────────────────────────
 
   function runAnalysis() {
     if (!trainData) return;
     try {
-      analysisResult = Analyser.analyse(trainData, currentRailType);
+      const overrides = Object.keys(limitOverrides).length > 0 ? limitOverrides : null;
+      analysisResult = Analyser.analyse(trainData, currentRailType, overrides);
       renderReport();
       setStatus('ready', '');
     } catch (err) {
@@ -99,6 +169,7 @@
     Visualiser.renderMultiParamHeatmap(trainData, analysisResult, currentRailType, 'heatmap-container');
     renderExceedanceTable();
     renderConclusions();
+    renderLimitsSummary();
   }
 
   function renderMeta() {
@@ -190,9 +261,9 @@
       reasonsList.appendChild(li);
     }
 
-    if (analysisResult.verdict.verdict === 'INCONCLUSIVE') {
+    if (analysisResult.verdict.verdict === 'REVIEW REQUIRED') {
       const li = document.createElement('li');
-      li.innerHTML = `<strong>ACTION REQUIRED:</strong> Manual review by a qualified technician is required.`;
+      li.innerHTML = `<strong>ACTION REQUIRED:</strong> Manual review by a trained technician is required before any operational decision is made.`;
       reasonsList.appendChild(li);
     }
   }
@@ -207,6 +278,102 @@
       PdfExport.exportReport('report-section', trainData.meta);
     });
   }
+
+  // ── Alarm limits summary ───────────────────────────────────────────────────
+
+  function renderLimitsSummary() {
+    const container = document.getElementById('limits-summary');
+    if (!container || !analysisResult) return;
+
+    const L = analysisResult.effectiveLimits || ALARM_LIMITS;
+    const D = ALARM_LIMITS;  // defaults for comparison
+
+    // Returns a <td> with amber highlight if the value differs from default
+    function td(val, defVal, fmt) {
+      const text   = fmt ? fmt(val) : String(val);
+      const isCustom = Math.abs(val - defVal) > 1e-9;
+      return `<td class="py-1.5 px-3 text-right font-mono text-xs ${isCustom ? 'text-amber-600 font-semibold' : 'text-gray-700'}">${text}${isCustom ? ' ✎' : ''}</td>`;
+    }
+
+    const railLabel = currentRailType === RAIL_TYPE.S_LINE ? 'S-line (60 kg/m)' : 'N1-line (57 kg/m)';
+    const wi = L.wheelImpact[currentRailType];
+    const wiD = D.wheelImpact[currentRailType];
+
+    const rows = [
+      // ─ Wheel Impact ─
+      ['Wheel Impact — Dynamic Load', 'Type 2', `${wi.type2} kN`, Math.abs(wi.type2 - wiD.type2) > 1e-9],
+      ['', 'Type 3', `${wi.type3} kN`, Math.abs(wi.type3 - wiD.type3) > 1e-9],
+      // ─ Lateral Force ─
+      ['Lateral Force (per wheel)', 'Type 1 min', `${L.lateralForce.type1Min} t`, Math.abs(L.lateralForce.type1Min - D.lateralForce.type1Min) > 1e-9],
+      ['', 'Type 2 min', `${L.lateralForce.type2Min} t`, Math.abs(L.lateralForce.type2Min - D.lateralForce.type2Min) > 1e-9],
+      ['', 'Type 3 force', `${L.lateralForce.type3Force} t`, Math.abs(L.lateralForce.type3Force - D.lateralForce.type3Force) > 1e-9],
+      ['', 'Type 3 L/V ratio', `${L.lateralForce.type3LvRatio}`, Math.abs(L.lateralForce.type3LvRatio - D.lateralForce.type3LvRatio) > 1e-9],
+      // ─ Gauge Spreading ─
+      ['Gauge Spreading Force', 'Type 1 min', `${L.gaugeSpreading.type1Min} t`, Math.abs(L.gaugeSpreading.type1Min - D.gaugeSpreading.type1Min) > 1e-9],
+      ['', 'Type 2', `${L.gaugeSpreading.type2} t`, Math.abs(L.gaugeSpreading.type2 - D.gaugeSpreading.type2) > 1e-9],
+      // ─ Skew Loading ─
+      ['Skew Loading', 'Type 2', `${L.skewLoading.type2} %`, Math.abs(L.skewLoading.type2 - D.skewLoading.type2) > 1e-9],
+      // ─ Channel Offsets ─
+      ['Bridge Channel Offset', 'Warning threshold', `${L.channelOffset.warningThreshold} t`, Math.abs(L.channelOffset.warningThreshold - D.channelOffset.warningThreshold) > 1e-9],
+      ['', 'Fault threshold', `${L.channelOffset.faultThreshold} t`, Math.abs(L.channelOffset.faultThreshold - D.channelOffset.faultThreshold) > 1e-9],
+    ];
+
+    const hasAnyOverride = rows.some(r => r[3]);
+    const sourceNote = hasAnyOverride
+      ? 'BBD5249 v3.1 (with analyst overrides)'
+      : 'BBD5249 v3.1 (unmodified)';
+
+    container.innerHTML = `
+      <p class="text-xs text-gray-500 mb-3">
+        Rail type: <strong class="text-gray-700">${railLabel}</strong> &nbsp;·&nbsp;
+        Source: <strong class="text-gray-700">${sourceNote}</strong>
+      </p>
+      <div class="overflow-x-auto">
+        <table class="text-xs w-full max-w-xl">
+          <thead>
+            <tr class="border-b border-gray-200 text-gray-400 text-left bg-gray-50">
+              <th class="py-2 px-3 font-medium">Parameter</th>
+              <th class="py-2 px-3 font-medium">Alarm Type</th>
+              <th class="py-2 px-3 font-medium text-right">Limit Used</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(([param, type, val, isCustom]) => `
+              <tr class="border-b border-gray-100">
+                <td class="py-1.5 px-3 text-gray-600">${param}</td>
+                <td class="py-1.5 px-3 text-gray-500">${type}</td>
+                <td class="py-1.5 px-3 text-right font-mono ${isCustom ? 'text-amber-600 font-semibold' : 'text-gray-700'}">${val}${isCustom ? ' ✎' : ''}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  // ── Data quality warnings ──────────────────────────────────────────────────
+
+  function renderDataWarnings(warnings) {
+    const container = document.getElementById('data-warnings');
+    if (!container) return;
+    if (!warnings || warnings.length === 0) {
+      container.innerHTML = '';
+      container.classList.add('hidden');
+      return;
+    }
+    container.classList.remove('hidden');
+    container.innerHTML = warnings.map(w => {
+      const icon = '⚠';
+      return `<div class="flex gap-3 bg-amber-50 border border-amber-300 rounded-lg p-4 text-sm">
+        <div class="text-amber-500 text-lg leading-none mt-0.5 flex-shrink-0">${icon}</div>
+        <div>
+          <p class="font-semibold text-amber-800 mb-1">Data Quality Warning — ${w.code.replace(/_/g, ' ')}</p>
+          <p class="text-amber-700">${w.message}</p>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Expose resetLimits so the inline onclick in the HTML can call it
+  window._appResetLimits = () => resetLimits();
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
