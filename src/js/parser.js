@@ -1,20 +1,30 @@
 /**
  * parser.js — Parses ITCMS WIM-WIM CSV condition and alarm files.
  *
- * Condition file columns (0-indexed after the D/H row-type field):
- *   0: row type (D=data, H=header — skip H rows)
- *   1: COMPONENT   (measurement system ID, e.g. EMR.CAM2.CAM.WIM.01)
- *   2: TIME        (datetime string)
- *   3: DIR         (direction: Up / Down)
- *   4: TRAIN #     (train identifier, quoted)
- *   5: VEHICLE #   (wagon tag, or empty for train-level rows)
- *   6: ORIENT      (orientation flag)
- *   7: V POS       (vehicle position in consist, 1-based)
- *   8: TYPE        (measurement type string)
- *   9: M POS       (measurement position: channel, bogie, or axle number)
- *  10: SIDE        (Left / Right / empty)
- *  11: VALUE       (numeric value)
- *  12: UNITS       (ton, km/h, V, etc.)
+ * Supported CSV layouts
+ * ─────────────────────
+ * Format A — H/D-prefixed (original ITCMS export)
+ *   Each row starts with 'H' (header) or 'D' (data). Column indices:
+ *   0:row-type  1:COMPONENT  2:TIME  3:DIR  4:TRAIN#  5:VEHICLE#
+ *   6:ORIENT    7:V POS      8:TYPE  9:M POS 10:SIDE  11:VALUE  12:UNITS
+ *
+ * Format B — Headerless plain-text (direct-query export, no prefix)
+ *   First row is a column header; data rows follow immediately. Same column
+ *   order as Format A but without the leading row-type field. This parser
+ *   prepends synthetic H/D markers so all downstream code uses the same
+ *   column indices as Format A.
+ *
+ * Format C — Headerless with Excel formula notation (=\"value\", =number)
+ *   Identical to Format B except field values are prefixed with '=' to prevent
+ *   Excel from interpreting them as numbers or formulas. The parser strips this
+ *   prefix automatically.
+ *
+ * Alarm files follow Format A but with different columns:
+ *   0:row-type  1:STATE  2:COMPONENT  3:TIME  4:DIR  5:TRAIN#  6:VEHICLE#
+ *   7:SEVERITY  8:TYPE   9:V POS     10:M POS 11:SIDE 12:VALUE1 13:VALUE2 …
+ *
+ * Files whose column layout does not match a known WIM format are rejected
+ * with an 'unknown' type so the caller can surface a meaningful error.
  */
 
 const Parser = (() => {
@@ -30,7 +40,8 @@ const Parser = (() => {
   /**
    * Inspects the CSV text and returns 'condition', 'alarm', or 'unknown'.
    * Detection is based on file content (column headers and data patterns),
-   * not the filename.
+   * not the filename. Supports Format A (H/D prefix), Format B (headerless)
+   * and Format C (headerless with Excel formula '=' prefix).
    * @param {string} csvText
    * @returns {'condition'|'alarm'|'unknown'}
    */
@@ -40,9 +51,19 @@ const Parser = (() => {
     // Check header rows for column signature
     const hRow = rows.find(r => r[0] === 'H' && r.length >= 8);
     if (hRow) {
-      // Alarm files have STATE as col[1]; condition files have COMPONENT
-      if (hRow[1] && hRow[1].toUpperCase() === 'STATE') return 'alarm';
-      if (hRow[1] && hRow[1].toUpperCase() === 'COMPONENT') return 'condition';
+      const col1 = (hRow[1] || '').toUpperCase();
+      const col2 = (hRow[2] || '').toUpperCase();
+      const col3 = (hRow[3] || '').toUpperCase();
+
+      if (col1 === 'COMPONENT') return 'condition';
+
+      if (col1 === 'STATE') {
+        // WIM alarm layout: STATE, COMPONENT, TIME, DIR, …
+        // Non-WIM alarm-management export: STATE, COMPONENT, SEVERITY, TIME, …
+        // Distinguish by whether col[3] is TIME (WIM) or SEVERITY (non-WIM).
+        if (col2 === 'COMPONENT' && col3 === 'TIME') return 'alarm';
+        return 'unknown';
+      }
     }
 
     // Fallback: check D-row TYPE column
@@ -153,17 +174,53 @@ const Parser = (() => {
 
   // ── Internal helpers ───────────────────────────────────────────────────────
 
+  /**
+   * Parses, normalises and returns all rows as H/D-prefixed string arrays.
+   * Handles Format A (H/D prefix), Format B (headerless plain) and
+   * Format C (headerless with Excel formula '=' prefix on field values).
+   */
   function parseRows(csvText) {
-    // Normalise line endings then split
-    return csvText
+    const rawRows = csvText
       .replace(/\r\n/g, '\n')
       .replace(/\r/g, '\n')
       .split('\n')
       .filter(line => line.trim().length > 0)
       .map(line => splitCsvLine(line));
+
+    return normalizeToHDFormat(rawRows);
   }
 
-  // Simple CSV line splitter that handles quoted fields
+  /**
+   * Detects whether rows are already in H/D format or headerless, and
+   * normalises them to a canonical H/D layout so the rest of the parser
+   * can use fixed column indices regardless of the source format.
+   *
+   * H/D format:   first non-empty row's first field is 'H' or 'D'.
+   * Headerless:   first row contains column-name strings — a synthetic
+   *               'H' marker is prepended to it and 'D' is prepended to
+   *               every subsequent row.
+   */
+  function normalizeToHDFormat(rawRows) {
+    if (rawRows.length === 0) return rawRows;
+
+    const firstField = rawRows[0][0];
+    if (firstField === 'H' || firstField === 'D') return rawRows;
+
+    // Headerless format: prepend row-type markers
+    return rawRows.map((row, i) => [i === 0 ? 'H' : 'D', ...row]);
+  }
+
+  /**
+   * Splits a single CSV line into fields, handling quoted fields and
+   * stripping the Excel formula '=' prefix that direct-query exports add
+   * to prevent Excel from interpreting values as formulas.
+   *
+   * Examples of raw field text (after the CSV layer):
+   *   =XMEM801080030526  →  XMEM801080030526
+   *   =-0.76             →  -0.76
+   *   =V                 →  V
+   *   =                  →  (empty string, from ="" in source)
+   */
   function splitCsvLine(line) {
     const result = [];
     let current = '';
@@ -173,14 +230,27 @@ const Parser = (() => {
       if (ch === '"') {
         inQuotes = !inQuotes;
       } else if (ch === ',' && !inQuotes) {
-        result.push(current.trim());
+        result.push(stripExcelFormula(current.trim()));
         current = '';
       } else {
         current += ch;
       }
     }
-    result.push(current.trim());
+    result.push(stripExcelFormula(current.trim()));
     return result;
+  }
+
+  /**
+   * Strips the Excel formula injection prefix ('=') from a parsed CSV field.
+   * The CSV splitter processes  ="text"  as  =text  (quotes consumed by the
+   * quote-state machine), so by the time this function is called only the
+   * leading '=' remains to be removed.
+   */
+  function stripExcelFormula(value) {
+    if (value.length > 0 && value[0] === '=') {
+      return value.slice(1);
+    }
+    return value;
   }
 
   function extractMeta(firstRow, fileName) {

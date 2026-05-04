@@ -61,7 +61,10 @@
           return;
         }
         if (fileType === 'unknown') {
-          setStatus('error', 'Unrecognised file format. Please upload a valid ITCMS condition CSV.');
+          setStatus('error',
+            'Unrecognised file format. This tool only accepts ITCMS WIM condition CSV exports. ' +
+            'If this is an alarm management report (e.g. exported from the alarm overview screen), ' +
+            'it cannot be analysed here — please upload a condition data file instead.');
           return;
         }
 
