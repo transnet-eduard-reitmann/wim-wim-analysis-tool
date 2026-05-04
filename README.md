@@ -46,7 +46,7 @@ Alarm limits are sourced from **BBD5249 v3.1** — *Alarm Limits for Weighbridge
 │       └── pdf-export.js PDF report export
 ├── config/
 │   └── alarm-limits.js   BBD5249 limits (single source of truth)
-└── sample-data/          Anonymised sample CSV files for testing
+└── sample-data/          (gitignored) Anonymised sample CSV files for testing
 ```
 
 ## Disclaimer
