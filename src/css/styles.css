@@ -72,6 +72,33 @@
     display: none !important;
   }
 
+  /* Condense the three first-page sections to fit on one portrait A4 page */
+  .page-one-card {
+    padding: 0.6rem 0.75rem !important;
+  }
+  .page-one-card h2 {
+    margin-bottom: 0.5rem !important;
+  }
+  .page-one-card #daa-alarms {
+    margin-bottom: 0.5rem !important;
+  }
+  .page-one-grid {
+    gap: 0.4rem !important;
+  }
+  #verdict-banner {
+    padding: 0.6rem 0.75rem !important;
+  }
+  #verdict-text {
+    font-size: 1.1rem !important;
+  }
+  #verdict-reasons {
+    margin-top: 0.5rem !important;
+  }
+  /* Tighten gap between the three first-page cards (overrides space-y-6) */
+  #report-section .page-one-card + .page-one-card {
+    margin-top: 0.5rem !important;
+  }
+
   /* Force a page break after the marked section */
   .print-break-after {
     break-after: page;

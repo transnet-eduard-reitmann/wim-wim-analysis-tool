@@ -1,4 +1,4 @@
-/**
+﻿/**
  * app.js — Main application: file upload, UI state, report rendering.
  *
  * Depends on: parser.js, analyser.js, visualiser.js, pdf-export.js,
@@ -167,6 +167,7 @@
     showSection('report-section');
     renderMeta();
     renderVerdict();
+    renderDataAnalysis();
     renderChannelSummaryCards();
     Visualiser.renderChannelLayout(analysisResult.channelHealth, 'channel-layout');
     Visualiser.renderMultiParamHeatmap(trainData, analysisResult, currentRailType, 'heatmap-container');
@@ -209,6 +210,213 @@
     if (verdict === 'NO ALARM')    return 'bg-gray-50 border-gray-300 text-gray-700';
     return 'bg-amber-50 border-amber-400 text-amber-800';
   }
+
+  // ── Data Analysis Overview ────────────────────────────────────────────────────────
+
+  function renderDataAnalysis() {
+    const alarmsEl = document.getElementById('daa-alarms');
+    const statsEl  = document.getElementById('daa-stats');
+    if (!alarmsEl || !statsEl || !analysisResult || !trainData) return;
+
+    const { stats } = analysisResult;
+    const limits      = analysisResult.effectiveLimits;
+    const impactLimits = limits.wheelImpact[currentRailType];
+
+    // ── Alarm type summary chips ───────────────────────────────────────────
+    const allExceedances = analysisResult.vehicleResults.flatMap(v => v.exceedances);
+    const paramCounts = {};
+    for (const e of allExceedances) {
+      paramCounts[e.parameter] = (paramCounts[e.parameter] || 0) + 1;
+    }
+    const paramBadges = Object.entries(paramCounts)
+      .map(([p, n]) =>
+        `<span class="inline-flex items-center gap-0.5 text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">${p} <span class="font-semibold">${n}</span></span>`
+      ).join('');
+
+    alarmsEl.innerHTML = `
+      <div class="flex flex-wrap items-center gap-1.5">
+        <span class="text-xs font-medium text-gray-500 mr-0.5">Alarms:</span>
+        <span class="text-xs px-2 py-0.5 rounded-full border font-semibold bg-gray-100 text-gray-700 border-gray-300">${stats.totalExceedances} total</span>
+        <span class="text-xs px-2 py-0.5 rounded-full border font-semibold bg-amber-50 text-amber-700 border-amber-300">${stats.type1Count} Type 1</span>
+        <span class="text-xs px-2 py-0.5 rounded-full border font-semibold bg-orange-50 text-orange-600 border-orange-300">${stats.type2Count} Type 2</span>
+        <span class="text-xs px-2 py-0.5 rounded-full border font-semibold bg-red-50 text-red-600 border-red-300">${stats.type3Count} Type 3</span>
+        ${allExceedances.length > 0
+          ? `<span class="text-gray-300 mx-0.5">│</span>${paramBadges}`
+          : `<span class="text-xs text-green-600 font-medium ml-1">✔ No alarms detected</span>`}
+      </div>`;
+
+    // ── Per-parameter stats table ────────────────────────────────────────────
+    const paramDefs = [
+      {
+        label: 'Vehicle Mass', unit: 't',
+        values: trainData.vehicles.map(v => v.mass_t).filter(x => x != null && !isNaN(x)),
+        thresholds: [],
+      },
+      {
+        label: 'Train Speed', unit: 'km/h',
+        values: trainData.vehicles.map(v => v.speed_kmh).filter(x => x != null && !isNaN(x) && x > 0),
+        thresholds: [],
+      },
+      {
+        label: 'Dyn. Load', unit: 'kN',
+        values: trainData.vehicles.flatMap(v => v.axles.flatMap(a => [a.dynamicLoadLeft_kN, a.dynamicLoadRight_kN])).filter(x => x != null && !isNaN(x)),
+        thresholds: [impactLimits.type2, impactLimits.type3],
+      },
+      {
+        label: 'Lat. Force L', unit: 't',
+        values: trainData.vehicles.flatMap(v => v.axles.map(a => a.lateralForceLeft_t)).filter(x => x != null && !isNaN(x)),
+        thresholds: [limits.lateralForce.type1Min, limits.lateralForce.type2Min, limits.lateralForce.type3Force],
+      },
+      {
+        label: 'Lat. Force R', unit: 't',
+        values: trainData.vehicles.flatMap(v => v.axles.map(a => a.lateralForceRight_t)).filter(x => x != null && !isNaN(x)),
+        thresholds: [limits.lateralForce.type1Min, limits.lateralForce.type2Min, limits.lateralForce.type3Force],
+      },
+      {
+        label: 'S-S Skew', unit: '%',
+        values: trainData.vehicles
+          .map(v => v.sideToSideSkew != null ? v.sideToSideSkew * 100 : null)
+          .filter(x => x != null && !isNaN(x)),
+        thresholds: [limits.skewLoading.type2],
+      },
+      {
+        label: 'E-E Skew', unit: '%',
+        values: trainData.vehicles
+          .map(v => v.endToEndSkew != null ? v.endToEndSkew * 100 : null)
+          .filter(x => x != null && !isNaN(x)),
+        thresholds: [limits.skewLoading.type2],
+      },
+      {
+        label: 'Bogie Skew', unit: 't',
+        values: trainData.vehicles.flatMap(v => v.skewnessBogie.map(b => b.value)).filter(x => x != null && !isNaN(x)),
+        thresholds: [],
+      },
+    ].filter(p => p.values.length > 1);
+
+    if (paramDefs.length === 0) {
+      statsEl.innerHTML = '<p class="text-xs text-gray-400 italic">No measurement data available.</p>';
+      return;
+    }
+
+    const rows = paramDefs.map(p => {
+      const sorted = [...p.values].sort((a, b) => a - b);
+      const n   = sorted.length;
+      const min = sorted[0];
+      const max = sorted[n - 1];
+      const mean   = sorted.reduce((s, v) => s + v, 0) / n;
+      const median = statPct(sorted, 0.50);
+      const q1     = statPct(sorted, 0.25);
+      const q3     = statPct(sorted, 0.75);
+
+      const excCount  = p.thresholds.length > 0 ? sorted.filter(v => v >= p.thresholds[0]).length : 0;
+      const sev2Count = p.thresholds.length > 1 ? sorted.filter(v => v >= p.thresholds[1]).length : 0;
+      const excBadge  = excCount > 0
+        ? `<span class="ml-1 font-semibold ${sev2Count > 0 ? 'text-orange-500' : 'text-amber-500'}">↑${excCount}</span>`
+        : '';
+
+      const hist = buildMiniHistogram(sorted, 14, p.thresholds, min, max, p.unit);
+      return `
+        <tr class="border-b border-gray-100">
+          <td class="py-0.5 pr-2 text-gray-700 font-medium whitespace-nowrap">${p.label} <span class="text-gray-400 font-normal">${p.unit}</span>${excBadge}</td>
+          <td class="py-0.5 px-1.5 text-right font-mono text-gray-500">${min.toFixed(1)}</td>
+          <td class="py-0.5 px-1.5 text-right font-mono text-gray-400">${q1.toFixed(1)}</td>
+          <td class="py-0.5 px-1.5 text-right font-mono text-gray-600">${mean.toFixed(1)}</td>
+          <td class="py-0.5 px-1.5 text-right font-mono text-gray-800 font-semibold">${median.toFixed(1)}</td>
+          <td class="py-0.5 px-1.5 text-right font-mono text-gray-400">${q3.toFixed(1)}</td>
+          <td class="py-0.5 px-1.5 text-right font-mono text-gray-500">${max.toFixed(1)}</td>
+          <td class="py-0.5 px-1.5 text-right text-gray-400">${n}</td>
+          <td class="py-0.5 pl-1">${hist}</td>
+        </tr>`;
+    }).join('');
+
+    statsEl.innerHTML = `
+      <table class="text-xs w-full border-collapse">
+        <thead>
+          <tr class="border-b border-gray-200 text-gray-400 text-left">
+            <th class="py-1 pr-2 font-medium">Parameter</th>
+            <th class="py-1 px-1.5 font-medium text-right">Min</th>
+            <th class="py-1 px-1.5 font-medium text-right">Q1</th>
+            <th class="py-1 px-1.5 font-medium text-right">Mean</th>
+            <th class="py-1 px-1.5 font-medium text-right">Median</th>
+            <th class="py-1 px-1.5 font-medium text-right">Q3</th>
+            <th class="py-1 px-1.5 font-medium text-right">Max</th>
+            <th class="py-1 px-1.5 font-medium text-right">n</th>
+            <th class="py-1 pl-1 font-medium">Distribution</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  /** Interpolated percentile on a pre-sorted array (0 ≤ p ≤ 1). */
+  function statPct(sorted, p) {
+    const n = sorted.length;
+    if (n === 1) return sorted[0];
+    const idx = p * (n - 1);
+    const lo  = Math.floor(idx);
+    const hi  = Math.ceil(idx);
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+  }
+
+  function buildMiniHistogram(sortedValues, bins, thresholds, dataMin, dataMax, unit) {
+    const n = sortedValues.length;
+    if (n === 0) return '';
+    const min = dataMin !== undefined ? dataMin : sortedValues[0];
+    const max = dataMax !== undefined ? dataMax : sortedValues[n - 1];
+    const W = 224, H = 16;
+
+    if (max === min) {
+      const fill = histBinColor(min, thresholds);
+      const title = `${min.toFixed(2)} ${unit} (all ${n} values)`;
+      return `<svg width="${W}" height="${H}" style="vertical-align:middle"><rect x="0" y="0" width="${W}" height="${H}" rx="1" fill="${fill}" opacity="0.8"><title>${title}</title></rect></svg>`;
+    }
+
+    const range  = max - min;
+    const binW   = range / bins;
+    const counts = new Array(bins).fill(0);
+    for (const v of sortedValues) {
+      const i = Math.min(bins - 1, Math.floor((v - min) / binW));
+      counts[i]++;
+    }
+    const maxCount = Math.max(...counts);
+    const cellW    = W / bins;
+
+    const bars = counts.map((count, i) => {
+      const x  = (i * cellW).toFixed(1);
+      const bh = count === 0 ? 0 : Math.max(2, Math.round((count / maxCount) * H));
+      const y  = H - bh;
+      const fill = histBinColor(min + (i + 0.5) * binW, thresholds);
+      const binLo  = (min + i * binW).toFixed(2);
+      const binHi  = (min + (i + 1) * binW).toFixed(2);
+      const pctStr = ((count / n) * 100).toFixed(1);
+      const title  = `${binLo}\u2013${binHi} ${unit}\n${count} values (${pctStr}%)`;
+      const overlay = `<rect x="${x}" y="0" width="${cellW.toFixed(1)}" height="${H}" fill="transparent"><title>${title}</title></rect>`;
+      if (count === 0) return overlay;
+      const bar = `<rect x="${x}" y="${y}" width="${(cellW - 0.5).toFixed(1)}" height="${bh}" fill="${fill}" opacity="0.85"/>`;
+      return bar + overlay;
+    }).join('');
+
+    // Vertical dashed lines marking each threshold boundary
+    const ticks = thresholds
+      .filter(t => t > min && t < max)
+      .map(t => {
+        const tx = ((t - min) / range * W).toFixed(1);
+        return `<line x1="${tx}" y1="0" x2="${tx}" y2="${H}" stroke="#374151" stroke-width="0.8" stroke-dasharray="2,1.5" opacity="0.45"/>`;
+      }).join('');
+
+    return `<svg width="${W}" height="${H}" style="vertical-align:middle">${bars}${ticks}</svg>`;
+  }
+
+  function histBinColor(value, thresholds) {
+    if (thresholds.length === 0) return '#94a3b8';        // slate-400 — neutral
+    const t = [...thresholds].sort((a, b) => a - b);
+    if (t.length >= 3 && value >= t[2]) return '#dc2626'; // red-600    — Type 3
+    if (t.length >= 2 && value >= t[1]) return '#ea580c'; // orange-600 — Type 2
+    if (value >= t[0])                  return '#d97706'; // amber-600  — Type 1
+    return '#16a34a';                                     // green-600  — nominal
+  }
+
+  // ── Channel summary cards ─────────────────────────────────────────────────
 
   function renderChannelSummaryCards() {
     const { faultCount, warningCount, total } = analysisResult.channelHealth;
