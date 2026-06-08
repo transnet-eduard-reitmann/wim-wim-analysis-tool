@@ -263,6 +263,11 @@
         thresholds: [impactLimits.type2, impactLimits.type3],
       },
       {
+        label: 'Bogie Skew', unit: 't',
+        values: trainData.vehicles.flatMap(v => v.skewnessBogie.map(b => b.value)).filter(x => x != null && !isNaN(x)),
+        thresholds: [],
+      },
+      {
         label: 'Lat. Force L', unit: 't',
         values: trainData.vehicles.flatMap(v => v.axles.map(a => a.lateralForceLeft_t)).filter(x => x != null && !isNaN(x)),
         thresholds: [limits.lateralForce.type1Min, limits.lateralForce.type2Min, limits.lateralForce.type3Force],
@@ -285,11 +290,6 @@
           .map(v => v.endToEndSkew != null ? v.endToEndSkew * 100 : null)
           .filter(x => x != null && !isNaN(x)),
         thresholds: [limits.skewLoading.type2],
-      },
-      {
-        label: 'Bogie Skew', unit: 't',
-        values: trainData.vehicles.flatMap(v => v.skewnessBogie.map(b => b.value)).filter(x => x != null && !isNaN(x)),
-        thresholds: [],
       },
     ].filter(p => p.values.length > 1);
 
@@ -314,7 +314,6 @@
         ? `<span class="ml-1 font-semibold ${sev2Count > 0 ? 'text-orange-500' : 'text-amber-500'}">↑${excCount}</span>`
         : '';
 
-      const hist = buildMiniHistogram(sorted, 14, p.thresholds, min, max, p.unit);
       return `
         <tr class="border-b border-gray-100">
           <td class="py-0.5 pr-2 text-gray-700 font-medium whitespace-nowrap">${p.label} <span class="text-gray-400 font-normal">${p.unit}</span>${excBadge}</td>
@@ -325,12 +324,30 @@
           <td class="py-0.5 px-1.5 text-right font-mono text-gray-400">${q3.toFixed(1)}</td>
           <td class="py-0.5 px-1.5 text-right font-mono text-gray-500">${max.toFixed(1)}</td>
           <td class="py-0.5 px-1.5 text-right text-gray-400">${n}</td>
-          <td class="py-0.5 pl-1">${hist}</td>
         </tr>`;
     }).join('');
 
+    // Distribution charts — one per parameter, 2-per-row grid
+    const chartCells = paramDefs.map(p => {
+      const sorted = [...p.values].sort((a, b) => a - b);
+      const excCount  = p.thresholds.length > 0 ? sorted.filter(v => v >= p.thresholds[0]).length : 0;
+      const sev2Count = p.thresholds.length > 1 ? sorted.filter(v => v >= p.thresholds[1]).length : 0;
+      const excBadge  = excCount > 0
+        ? `<span style="font-size:10px;font-weight:600;color:${sev2Count > 0 ? '#ea580c' : '#d97706'};">↑${excCount} alarm${excCount > 1 ? 's' : ''}</span>`
+        : '';
+      const chart = buildHistogram(sorted, 16, p.thresholds, p.unit);
+      return `
+        <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:10px 12px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+            <span style="font-size:11px;font-weight:600;color:#374151;">${p.label} <span style="font-weight:400;color:#9ca3af;">(${p.unit})</span></span>
+            ${excBadge}
+          </div>
+          ${chart}
+        </div>`;
+    }).join('');
+
     statsEl.innerHTML = `
-      <table class="text-xs w-full border-collapse">
+      <table class="text-xs w-full border-collapse mb-5">
         <thead>
           <tr class="border-b border-gray-200 text-gray-400 text-left">
             <th class="py-1 pr-2 font-medium">Parameter</th>
@@ -341,11 +358,12 @@
             <th class="py-1 px-1.5 font-medium text-right">Q3</th>
             <th class="py-1 px-1.5 font-medium text-right">Max</th>
             <th class="py-1 px-1.5 font-medium text-right">n</th>
-            <th class="py-1 pl-1 font-medium">Distribution</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
-      </table>`;
+      </table>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Distributions</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">${chartCells}</div>`;
   }
 
   /** Interpolated percentile on a pre-sorted array (0 ≤ p ≤ 1). */
@@ -358,55 +376,122 @@
     return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
   }
 
-  function buildMiniHistogram(sortedValues, bins, thresholds, dataMin, dataMax, unit) {
+  /**
+   * Builds a standalone histogram SVG with x-axis tick labels at min, threshold
+   * boundaries (with severity names), and max. Bars are colour-coded by severity
+   * zone. Returns an HTML string containing the SVG.
+   */
+  function buildHistogram(sortedValues, bins, thresholds, unit) {
     const n = sortedValues.length;
     if (n === 0) return '';
-    const min = dataMin !== undefined ? dataMin : sortedValues[0];
-    const max = dataMax !== undefined ? dataMax : sortedValues[n - 1];
-    const W = 224, H = 16;
+
+    const min = sortedValues[0];
+    const max = sortedValues[n - 1];
+
+    // Layout: chart area is [PAD_L, PAD_T] to [PAD_L+CW, PAD_T+BH]
+    // Total SVG viewBox: TW x TH
+    const CW    = 330;  // chart inner width
+    const BH    = 54;   // chart inner height (bars)
+    const PAD_L = 28;   // left  — y-axis labels
+    const PAD_R = 20;   // right — room for last x-tick label
+    const PAD_T = 8;    // top   — room for top y-tick label
+    const PAD_B = 32;   // bottom — x-axis labels (value + sev name row)
+    const TW    = PAD_L + CW + PAD_R;
+    const TH    = PAD_T + BH + PAD_B;
+    // Shorthand: chart top-left corner
+    const CX = PAD_L;
+    const CY = PAD_T;
 
     if (max === min) {
       const fill = histBinColor(min, thresholds);
-      const title = `${min.toFixed(2)} ${unit} (all ${n} values)`;
-      return `<svg width="${W}" height="${H}" style="vertical-align:middle"><rect x="0" y="0" width="${W}" height="${H}" rx="1" fill="${fill}" opacity="0.8"><title>${title}</title></rect></svg>`;
+      return '<svg width="100%" viewBox="0 0 ' + TW + ' ' + TH + '" style="display:block;">' +
+        '<rect x="' + CX + '" y="' + CY + '" width="' + CW + '" height="' + BH + '" rx="2" fill="' + fill + '" opacity="0.8"/>' +
+        '<text x="' + (CX + CW / 2) + '" y="' + (CY + BH + 16) + '" text-anchor="middle" font-size="9" fill="#6b7280">' + min.toFixed(1) + ' ' + unit + ' (all ' + n + ')</text>' +
+        '</svg>';
     }
 
-    const range  = max - min;
-    const binW   = range / bins;
+    const range = max - min;
+    const binW  = range / bins;
     const counts = new Array(bins).fill(0);
     for (const v of sortedValues) {
       const i = Math.min(bins - 1, Math.floor((v - min) / binW));
       counts[i]++;
     }
     const maxCount = Math.max(...counts);
-    const cellW    = W / bins;
+    const cellW    = CW / bins;
 
-    const bars = counts.map((count, i) => {
-      const x  = (i * cellW).toFixed(1);
-      const bh = count === 0 ? 0 : Math.max(2, Math.round((count / maxCount) * H));
-      const y  = H - bh;
-      const fill = histBinColor(min + (i + 0.5) * binW, thresholds);
-      const binLo  = (min + i * binW).toFixed(2);
-      const binHi  = (min + (i + 1) * binW).toFixed(2);
-      const pctStr = ((count / n) * 100).toFixed(1);
-      const title  = `${binLo}\u2013${binHi} ${unit}\n${count} values (${pctStr}%)`;
-      const overlay = `<rect x="${x}" y="0" width="${cellW.toFixed(1)}" height="${H}" fill="transparent"><title>${title}</title></rect>`;
-      if (count === 0) return overlay;
-      const bar = `<rect x="${x}" y="${y}" width="${(cellW - 0.5).toFixed(1)}" height="${bh}" fill="${fill}" opacity="0.85"/>`;
-      return bar + overlay;
+    // ── Y-axis: 4 fixed gridlines at 0, 33%, 67%, 100% of maxCount
+    const yTicks = [0, 0.33, 0.67, 1.0];
+    const yLines = yTicks.map(function(frac) {
+      const yVal = Math.round(frac * maxCount);
+      const yPx  = CY + BH - Math.round(frac * BH);
+      const line = '<line x1="' + CX + '" y1="' + yPx + '" x2="' + (CX + CW) + '" y2="' + yPx + '" stroke="#e5e7eb" stroke-width="0.8"/>';
+      const lbl  = '<text x="' + (CX - 3) + '" y="' + (yPx + 3) + '" text-anchor="end" font-size="7.5" fill="#9ca3af">' + yVal + '</text>';
+      return line + lbl;
     }).join('');
 
-    // Vertical dashed lines marking each threshold boundary
-    const ticks = thresholds
-      .filter(t => t > min && t < max)
-      .map(t => {
-        const tx = ((t - min) / range * W).toFixed(1);
-        return `<line x1="${tx}" y1="0" x2="${tx}" y2="${H}" stroke="#374151" stroke-width="0.8" stroke-dasharray="2,1.5" opacity="0.45"/>`;
+    // ── Bars with SVG title tooltips
+    const bars = counts.map(function(count, i) {
+      const x   = (CX + i * cellW).toFixed(1);
+      const bh  = count === 0 ? 0 : Math.max(2, Math.round((count / maxCount) * BH));
+      const y   = CY + BH - bh;
+      const fill = histBinColor(min + (i + 0.5) * binW, thresholds);
+      const binLo = (min + i * binW).toFixed(2);
+      const binHi = (min + (i + 1) * binW).toFixed(2);
+      const pct   = ((count / n) * 100).toFixed(1);
+      const tip   = binLo + '–' + binHi + ' ' + unit + '&#10;' + count + ' values (' + pct + '%)';
+      if (count === 0) {
+        return '<rect x="' + x + '" y="' + CY + '" width="' + cellW.toFixed(1) + '" height="' + BH + '" fill="transparent"><title>' + tip + '</title></rect>';
+      }
+      return '<rect x="' + x + '" y="' + y + '" width="' + (cellW - 0.5).toFixed(1) + '" height="' + bh + '" rx="1" fill="' + fill + '" opacity="0.85"><title>' + tip + '</title></rect>';
+    }).join('');
+
+    // ── X-axis: 5 evenly-spaced ticks, plus threshold values (deduplicated)
+    const xTickCount = 5;
+    const xTickStep  = range / (xTickCount - 1);
+    const xTickVals  = [];
+    for (var ti = 0; ti < xTickCount; ti++) xTickVals.push(min + ti * xTickStep);
+    const sorted_t = thresholds.slice().sort(function(a, b) { return a - b; });
+    sorted_t.forEach(function(t) {
+      if (t > min && t < max && !xTickVals.some(function(v) { return Math.abs(v - t) < xTickStep * 0.15; })) {
+        xTickVals.push(t);
+      }
+    });
+    xTickVals.sort(function(a, b) { return a - b; });
+
+    const sevNames = ['T1', 'T2', 'T3'];
+    const baselineY = CY + BH;
+    const xAxis = xTickVals.map(function(v) {
+      const px = (CX + (v - min) / range * CW).toFixed(1);
+      const isThresh  = sorted_t.some(function(t) { return Math.abs(t - v) < 0.001; });
+      const threshIdx = sorted_t.findIndex(function(t) { return Math.abs(t - v) < 0.001; });
+      const col  = isThresh ? '#6b7280' : '#9ca3af';
+      // Clamp text-anchor so rightmost label doesn't overflow PAD_R
+      const pxNum  = parseFloat(px);
+      const anchor = pxNum > CX + CW - 10 ? 'end' : (pxNum < CX + 10 ? 'start' : 'middle');
+      const tick   = '<line x1="' + px + '" y1="' + baselineY + '" x2="' + px + '" y2="' + (baselineY + 4) + '" stroke="' + col + '" stroke-width="1"/>';
+      const label  = '<text x="' + px + '" y="' + (baselineY + 12) + '" text-anchor="' + anchor + '" font-size="7.5" fill="' + col + '">' + v.toFixed(1) + '</text>';
+      const sevLbl = (isThresh && threshIdx >= 0)
+        ? '<text x="' + px + '" y="' + (baselineY + 22) + '" text-anchor="' + anchor + '" font-size="7" fill="#9ca3af">' + (sevNames[threshIdx] || '') + '</text>'
+        : '';
+      return tick + label + sevLbl;
+    }).join('');
+
+    // Threshold dashed vertical lines
+    const threshLines = sorted_t
+      .filter(function(t) { return t > min && t < max; })
+      .map(function(t) {
+        const tx = (CX + (t - min) / range * CW).toFixed(1);
+        return '<line x1="' + tx + '" y1="' + CY + '" x2="' + tx + '" y2="' + (CY + BH) + '" stroke="#374151" stroke-width="0.8" stroke-dasharray="3,2" opacity="0.45"/>';
       }).join('');
 
-    return `<svg width="${W}" height="${H}" style="vertical-align:middle">${bars}${ticks}</svg>`;
-  }
+    const baseline = '<line x1="' + CX + '" y1="' + baselineY + '" x2="' + (CX + CW) + '" y2="' + baselineY + '" stroke="#d1d5db" stroke-width="1"/>';
+    const yAxis    = '<line x1="' + CX + '" y1="' + CY + '" x2="' + CX + '" y2="' + baselineY + '" stroke="#d1d5db" stroke-width="1"/>';
 
+    return '<svg width="100%" viewBox="0 0 ' + TW + ' ' + TH + '" style="display:block;">' +
+      yLines + yAxis + baseline + threshLines + bars + xAxis +
+      '</svg>';
+  }
   function histBinColor(value, thresholds) {
     if (thresholds.length === 0) return '#94a3b8';        // slate-400 — neutral
     const t = [...thresholds].sort((a, b) => a - b);

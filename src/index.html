@@ -18,7 +18,7 @@
       <h1 class="text-lg font-bold text-gray-900 tracking-wide">WIM-WIM Analysis Tool</h1>
       <p class="text-xs text-gray-400 mt-0.5">ITCMS Condition Data Processor · BBD5249 v3.1</p>
     </div>
-    <div class="text-xs text-gray-400">Transnet Technology Management</div>
+    <div class="text-xs text-gray-400">TRIM, Technology Management</div>
   </header>
 
   <!-- ── Upload Section ──────────────────────────────────────────────────── -->
@@ -165,7 +165,7 @@
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
               <label class="block text-xs text-gray-600">
                 Warning (t)
-                <input type="number" data-limit="channelOffset.warningThreshold" value="0.5" min="0" step="0.1"
+                <input type="number" data-limit="channelOffset.warningThreshold" value="1.0" min="0" step="0.1"
                   class="mt-1 w-full border border-gray-300 rounded px-2 py-1 text-sm font-mono focus:ring-2 focus:ring-blue-400 focus:outline-none" />
               </label>
               <label class="block text-xs text-gray-600">
@@ -224,17 +224,8 @@
         </div>
       </div>
 
-      <!-- 2. Data Analysis Overview -->
-      <div id="data-analysis-section" class="bg-white rounded-xl border border-gray-200 p-5 page-one-card">
-        <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Data Analysis Overview</h2>
-        <!-- Alarm type summary chips -->
-        <div id="daa-alarms" class="mb-3"></div>
-        <!-- Per-parameter statistical overview table -->
-        <div id="daa-stats"></div>
-      </div>
-
-      <!-- 3. Executive Summary / Verdict -->
-      <div class="bg-white rounded-xl border border-gray-200 p-5 print-break-after page-one-card">
+      <!-- 2. Executive Summary / Verdict -->
+      <div class="bg-white rounded-xl border border-gray-200 p-5 page-one-card">
         <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Executive Summary</h2>
         <div id="verdict-banner" class="rounded-xl p-5 border-2 bg-gray-50 border-gray-300">
           <div id="verdict-text" class="text-2xl font-bold tracking-wide">—</div>
@@ -246,8 +237,8 @@
         </p>
       </div>
 
-      <!-- 4. System Diagnostics — Channel Health -->
-      <div class="bg-white rounded-xl border border-gray-200 p-5">
+      <!-- 3. System Diagnostics — Channel Health -->
+      <div class="bg-white rounded-xl border border-gray-200 p-5 page-one-card print-break-after">
         <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">System Diagnostics — Bridge Channel Health</h2>
 
         <!-- Summary cards -->
@@ -279,14 +270,7 @@
         <div id="channel-layout"></div>
       </div>
 
-      <!-- 4. Alarm Limits Reference -->
-      <div class="bg-white rounded-xl border border-gray-200 p-5 print-break-after">
-        <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-1">Alarm Limits Applied</h2>
-        <p class="text-xs text-gray-400 mb-4">Limits used to generate this report. Values pre-populated from BBD5249 v3.1 — any overrides applied for this analysis are shown in <span class="text-amber-600 font-semibold">amber</span>.</p>
-        <div id="limits-summary"></div>
-      </div>
-
-      <!-- 5. Multi-Parameter Train Heatmap -->
+      <!-- 4. Multi-Parameter Train Heatmap -->
       <div class="bg-white rounded-xl border border-gray-200 p-5">
         <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-1">Train Overview — Multi-Parameter Heatmap</h2>
         <p class="text-xs text-gray-400 mb-4">
@@ -301,7 +285,7 @@
         <div id="heatmap-container"></div>
       </div>
 
-      <!-- 6. Detailed Exceedance Table -->
+      <!-- 5. Detailed Exceedance Table -->
       <div class="bg-white rounded-xl border border-gray-200 p-5">
         <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Detailed Exceedances (sorted by severity)</h2>
         <div class="overflow-x-auto">
@@ -320,6 +304,22 @@
             <tbody id="exceedance-table-body"></tbody>
           </table>
         </div>
+      </div>
+
+      <!-- 6. Data Analysis Overview -->
+      <div id="data-analysis-section" class="bg-white rounded-xl border border-gray-200 p-5">
+        <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Data Analysis Overview</h2>
+        <!-- Alarm type summary chips -->
+        <div id="daa-alarms" class="mb-3"></div>
+        <!-- Per-parameter statistical overview table + distribution charts -->
+        <div id="daa-stats"></div>
+      </div>
+
+      <!-- 7. Alarm Limits Applied -->
+      <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-1">Alarm Limits Applied</h2>
+        <p class="text-xs text-gray-400 mb-4">Limits used to generate this report. Values pre-populated from BBD5249 v3.1 — any overrides applied for this analysis are shown in <span class="text-amber-600 font-semibold">amber</span>.</p>
+        <div id="limits-summary"></div>
       </div>
 
     </section>

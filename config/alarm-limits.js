@@ -62,7 +62,7 @@ const ALARM_LIMITS = {
   // Bridge channel voltage offset — diagnostic only (not an alarm parameter in BBD5249
   // but used here as a system health indicator; channels should be close to 0 V at rest)
   channelOffset: {
-    warningThreshold: 0.5,  // tonnes — flag offset exceeding this
+    warningThreshold: 1.0,  // tonnes — flag offset exceeding this
     faultThreshold: 2.0,    // tonnes — consider channel faulty above this
   },
 
