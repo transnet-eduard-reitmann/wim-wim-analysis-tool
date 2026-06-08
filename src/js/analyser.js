@@ -88,6 +88,20 @@ const Analyser = (() => {
       }
     }
 
+    // Bogie couple (per bogie — Skewness [B] from CSV)
+    if (vehicle.skewnessBogie && limits.bogieCouple) {
+      for (const sk of vehicle.skewnessBogie) {
+        if (sk.value == null || isNaN(sk.value)) continue;
+        const sev = bogieCoupleSeverity(sk.value, limits.bogieCouple);
+        if (sev !== SEVERITY.NOMINAL) {
+          exceedances.push({
+            vPos: vehicle.vPos, parameter: 'Bogie Couple', axle: null, side: `Bogie ${sk.bogieNum}`,
+            value: Math.abs(sk.value), limit: limits.bogieCouple.type1Min, units: 't', severity: sev,
+          });
+        }
+      }
+    }
+
     // Per-axle checks
     for (const axle of vehicle.axles) {
       const axleExceedances = [];
@@ -161,6 +175,13 @@ const Analyser = (() => {
   function gaugeSpreadingSeverity(t, gs) {
     if (t >= gs.type2)    return SEVERITY.TYPE2;
     if (t >= gs.type1Min) return SEVERITY.TYPE1;
+    return SEVERITY.NOMINAL;
+  }
+
+  function bogieCoupleSeverity(t, bc) {
+    const abs = Math.abs(t);
+    if (abs >= bc.type2)    return SEVERITY.TYPE2;
+    if (abs >= bc.type1Min) return SEVERITY.TYPE1;
     return SEVERITY.NOMINAL;
   }
 
@@ -249,6 +270,10 @@ const Analyser = (() => {
       {
         label: 'End-to-End Skew',
         values: vehicles.map(v => v.endToEndSkew).filter(x => x != null),
+      },
+      {
+        label: 'Bogie Couple',
+        values: vehicles.flatMap(v => v.skewnessBogie ? v.skewnessBogie.map(s => s.value).filter(x => x != null) : []),
       },
     ];
 

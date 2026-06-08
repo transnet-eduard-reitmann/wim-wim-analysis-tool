@@ -263,9 +263,9 @@
         thresholds: [impactLimits.type2, impactLimits.type3],
       },
       {
-        label: 'Bogie Skew', unit: 't',
-        values: trainData.vehicles.flatMap(v => v.skewnessBogie.map(b => b.value)).filter(x => x != null && !isNaN(x)),
-        thresholds: [],
+        label: 'Bogie Couple', unit: 't',
+        values: trainData.vehicles.flatMap(v => v.skewnessBogie.map(b => Math.abs(b.value))).filter(x => x != null && !isNaN(x)),
+        thresholds: [limits.bogieCouple.type1Min, limits.bogieCouple.type2],
       },
       {
         label: 'Lat. Force L', unit: 't',
@@ -607,6 +607,9 @@
       // ─ Gauge Spreading ─
       ['Gauge Spreading Force', 'Type 1 min', `${L.gaugeSpreading.type1Min} t`, Math.abs(L.gaugeSpreading.type1Min - D.gaugeSpreading.type1Min) > 1e-9],
       ['', 'Type 2', `${L.gaugeSpreading.type2} t`, Math.abs(L.gaugeSpreading.type2 - D.gaugeSpreading.type2) > 1e-9],
+      // ─ Bogie Couple ─
+      ['Bogie Couple (Skewness [B])', 'Type 1 min', `${L.bogieCouple.type1Min} t`, Math.abs(L.bogieCouple.type1Min - D.bogieCouple.type1Min) > 1e-9],
+      ['', 'Type 2', `${L.bogieCouple.type2} t`, Math.abs(L.bogieCouple.type2 - D.bogieCouple.type2) > 1e-9],
       // ─ Skew Loading ─
       ['Skew Loading', 'Type 2', `${L.skewLoading.type2} %`, Math.abs(L.skewLoading.type2 - D.skewLoading.type2) > 1e-9],
       // ─ Channel Offsets ─

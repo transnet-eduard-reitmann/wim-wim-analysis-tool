@@ -147,6 +147,23 @@
             </div>
           </div>
 
+          <!-- Bogie Couple (Skewness [B]) -->
+          <div>
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Bogie Couple — Skewness [B] (t)</p>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <label class="block text-xs text-gray-600">
+                Type 1 min (t)
+                <input type="number" data-limit="bogieCouple.type1Min" value="4" min="0" step="0.1"
+                  class="mt-1 w-full border border-gray-300 rounded px-2 py-1 text-sm font-mono focus:ring-2 focus:ring-blue-400 focus:outline-none" />
+              </label>
+              <label class="block text-xs text-gray-600">
+                Type 2 (t)
+                <input type="number" data-limit="bogieCouple.type2" value="5" min="0" step="0.1"
+                  class="mt-1 w-full border border-gray-300 rounded px-2 py-1 text-sm font-mono focus:ring-2 focus:ring-blue-400 focus:outline-none" />
+              </label>
+            </div>
+          </div>
+
           <!-- Skew Loading -->
           <div>
             <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Skew Loading (%)</p>
@@ -278,7 +295,7 @@
           <strong class="text-cyan-600">Measurements</strong> (actual vertical loads in t · axle load · bogie load as merged blocks),
           <strong class="text-blue-500">Dynamic Load</strong> (Dyn Load kN per wheel),
           <strong class="text-blue-500">Skew Loading</strong> (side-to-side and end-to-end skew) and
-          <strong class="text-purple-500">Lateral Force Alarms</strong> (Lat Force · Gauge Spreading).
+          <strong class="text-purple-500">Lateral Force Alarms</strong> (Bogie Couple [B] · Lat Force L/R · Gauge Spreading).
           Measurement cells show the value directly; alarm cells use colour to indicate severity.
           Hover any block for its exact value. Vehicle number, ID and mass are shown in the left sidebar.
         </p>

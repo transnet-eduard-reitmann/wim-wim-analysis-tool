@@ -37,8 +37,9 @@ const ALARM_LIMITS = {
     type2: 5,      // t — >= this is Type 2
   },
 
-  // Bogie couple force (hunting detection — net lateral force between two axles of a bogie)
-  boguCouple: {
+  // Bogie couple force (BBD5249 §3.3 — Skewness [B]: lateral force asymmetry between the leading
+  // and trailing axles of a bogie. Formula: (L1+R1) − (L2+R2). Units: tonnes. Positive = skew right.)
+  bogieCouple: {
     type1Min: 4,   // t
     type1Max: 5,   // t (exclusive)
     type2: 5,      // t — >= this is Type 2
